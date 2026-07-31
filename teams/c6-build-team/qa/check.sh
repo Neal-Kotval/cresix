@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$repo_root"
 
 bash teams/c6-build-team/qa/validate-team.sh
+python3 qa/tests/docs_contract.py
 
 while IFS= read -r script; do
   bash -n "$script"

@@ -20,11 +20,12 @@ separate process boundary. Compose persists it in `runner-state`; its socket
 volume also contains the mode-`0600` runner protocol key.
 
 Optional Cresix Cloud uses its own `C6_CLOUD_DATA_DIR` and SQLite database.
-That store contains hosted accounts/sessions, global workspace namespaces,
-installation/credential verifiers, bindings, catalog projections, route state,
-and Cloud audit events. It must never contain local Git objects, local session
-verifiers, local roles, runtime state, or secret values. Active connector
-presence is process memory and becomes offline after a Cloud restart.
+That store contains preview accounts/sessions, workspace namespaces whose
+uniqueness is local to that database, installation/credential verifiers,
+bindings, catalog projections, route state, and Cloud audit events. It must
+never contain local Git objects, local session verifiers, local roles, runtime
+state, or secret values. Active connector presence is process memory and
+becomes offline after a Cloud restart.
 
 The connector has no database. Its strict owner-only config points to two
 separate owner-only credential files: one Cloud connector credential and one

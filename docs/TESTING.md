@@ -5,6 +5,7 @@
 ```bash
 make team-qa       # static, unit, integration, web, build, Compose checks
 make team-smoke    # clean server lifecycle and HTTP contract
+just docs-check    # documentation structure, metadata, and relative links
 ./qa/run.sh        # consolidated local acceptance suite
 ```
 
@@ -15,6 +16,7 @@ sandbox permission; a skipped security-boundary test is not a pass.
 
 | Layer | Purpose |
 | --- | --- |
+| Documentation contract | canonical handbook pages, spec status metadata, relative links, and compatibility stubs |
 | `c6-core` | manifest and cumulative authorization contracts |
 | `c6-git` | temp-repo behavior, traversal, symlink, refs, smart-HTTP CGI bounds/timeouts/header filtering, merge, deletion safety |
 | `c6-client` | origin/redirect/response bounds, token redaction, canonical remote validation |
@@ -63,6 +65,7 @@ also prove standalone C6 starts and remains usable with Cloud absent.
 
 ```bash
 cargo fmt --all -- --check
+python3 qa/tests/docs_contract.py
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets
 npm test --prefix web -- --run

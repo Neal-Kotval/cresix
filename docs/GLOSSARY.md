@@ -7,13 +7,16 @@
   dependency; the operator owns any remote HTTPS ingress.
 - **Connected mode:** optional Cloud directory and managed reachability layered
   onto an otherwise sovereign local installation.
-- **Cresix Cloud:** separate hosted authority for global accounts, namespaces,
-  installation registrations, catalog projections, and relay presence. It is
-  not source, runtime, secret, or local-authorization authority.
-- **Cloud account:** hosted identity used for global namespace and installation
-  administration. It is not a local C6 peer or login in the first slice.
-- **Cloud workspace:** globally unique directory namespace with Cloud
-  membership; it binds to, but does not replace, one local workspace.
+- **Cresix Cloud:** optional authority intended for globally coordinated
+  accounts and namespaces, plus installation registrations, catalog projections,
+  and relay presence. The current dogfood service is one loopback database. It
+  is not source, runtime, secret, or local-authorization authority.
+- **Cloud account:** Cloud identity used for namespace and installation
+  administration. The target has a globally unique public handle; dogfood does
+  not. It is not a local C6 peer or login in the first slice.
+- **Cloud workspace:** account-scoped directory namespace in the target model.
+  The preview instead guarantees workspace-namespace uniqueness only in one
+  database. It binds to, but does not replace, one local workspace.
 - **Workspace binding:** mapping from a Cloud workspace to an installation and
   installation-local workspace UUID. It never grants a local role.
 - **Catalog projection:** bounded, versioned project discovery metadata

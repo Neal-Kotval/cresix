@@ -4,6 +4,7 @@
 - Date: 2026-07-31
 - Decision owners: C6 maintainers
 - Revisit when: one of the evidence triggers below is met
+- Implementation status: see the [capability ledger](../product/CAPABILITIES.md)
 
 ## Decision
 

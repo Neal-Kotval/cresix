@@ -24,10 +24,11 @@ Use the relevant rows during feature work and all blocking rows before release.
 | Installation | One-time credential; hashed verifier; cross-owner denial; revoke/fence | Cloud/security |
 | Catalog | Owner/binding authorization; bounds; monotonic revision; no local mutation | Cloud tests |
 | Connector | Owner-only config; fixed loopback upstream; no credential/header forwarding | Connector/security |
-| Relay protocol | Invalid/duplicate/late frames; bounds; concurrency; timeout; cancellation | Contract/integration |
+| Relay protocol | Invalid/duplicate/late frames; bounds; serial dogfood admission; protocol concurrency ceiling; timeout; cancellation | Contract/integration |
 | Route ingress | Unknown/offline/revoked route; authority-derived selection; overload/failure status | Integration |
 | Cloud web | Claim; workspace; installation; credential reveal; directory; disconnected/revoked | Vitest/Playwright |
-| Connected dogfood | Fresh Cloud+C6; real connector/relay; directory handoff; revoke; standalone survives | Dogfood |
+| Connected dogfood | Fresh Cloud plus authenticated C6-compatible backend; real connector/relay; directory handoff; revoke; standalone survives | Dogfood |
+| Documentation | Required product/architecture pages; spec status metadata; relative links; compatibility stubs | Docs contract |
 
 The MVP's runner may simulate execution. Container escape, real workload egress,
 and cross-project runtime isolation are release gates only when a real execution

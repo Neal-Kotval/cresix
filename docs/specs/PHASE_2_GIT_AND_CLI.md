@@ -1,9 +1,10 @@
 # Phase 2: Git-native collaboration and the C6 CLI
 
-Status: implementation specification
+Status: partially implemented; read-only Git and the thin CLI are shipped
 Owners: `c6-build-team`
-Target: the next C6 development-preview phase
+Remaining target: protected push, merge, audit, and production hardening
 Last updated: 2026-07-31
+Capability status: [Git and collaboration](../product/CAPABILITIES.md#git-and-collaboration)
 
 ## 1. Executive decision
 
@@ -57,9 +58,9 @@ ever added, they may only delegate to the installed Git executable and must
 preserve Git's arguments, output, and exit status. `c6 publish`, `c6 run`, and
 `c6 deploy` remain distinct future C6 operations pinned to committed revisions.
 
-## 3. Evidence and current state
+## 3. Historical baseline and delivered delta
 
-C6 currently has:
+When this specification was written, C6 had:
 
 - one authoritative Rust server, SQLite store, and Git root;
 - bare repositories at `${C6_DATA_DIR}/git/<project-UUID>.git`;
@@ -69,6 +70,14 @@ C6 currently has:
 - a same-origin Hub/Admin web application;
 - no network Git transport, personal access credentials, CLI crate, durable
   re-login proof, owner recovery, or rate limiting.
+
+The current revision has since delivered separate expiring CLI and read-only
+Git credentials, the `c6` CLI/client crates, a credential helper, canonical
+remote discovery, and opt-in authenticated smart HTTP `upload-pack` for
+clone/fetch/pull. Git push, protected-ref reconciliation, merge execution,
+durable read-access audit, owner recovery, and rate limiting remain absent. The
+[capability ledger](../product/CAPABILITIES.md#git-and-collaboration), not this
+historical snapshot, is the current status authority.
 
 The design uses Git's documented smart HTTP protocol and `git http-backend`
 rather than implementing pkt-line negotiation. Git documents that smart HTTP

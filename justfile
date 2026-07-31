@@ -161,3 +161,7 @@ down:
 # Run the complete local acceptance gate.
 test:
     ./qa/run.sh
+
+# Validate handbook structure, specification status metadata, and local links.
+docs-check:
+    python3 qa/tests/docs_contract.py

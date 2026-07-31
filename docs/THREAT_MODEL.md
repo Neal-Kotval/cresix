@@ -9,7 +9,7 @@ public Git exposure, Git push, workload isolation, secret storage, hosting, or
 hostile multi-tenancy because those capabilities/hardening are absent.
 
 The optional connected-mode dogfood slice additionally covers Cloud browser
-sessions, global namespace ownership, installation registration, connector
+sessions, preview-database namespace ownership, installation registration, connector
 credentials, catalog publication, relay route selection, and bounded HTTP
 proxying. It does not certify public multi-tenant deployment or claim
 end-to-end encryption through the relay.

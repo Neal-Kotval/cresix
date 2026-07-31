@@ -85,9 +85,13 @@ router rule, same-Wi-Fi connection, public IP, or ngrok account is required.
 The stable directory URL and the actual C6 origin are intentionally different:
 
 ```text
-https://cresix.com/{workspace}/{project}
+https://cresix.com/@{account}/{workspace}/{project}
     -> https://{opaque-route}.relay.cresix.com/projects/{project}
 ```
+
+The loopback dogfood UI temporarily uses `/{workspace}/{project}` because it
+has no public account handle. That preview path is not a compatibility promise;
+production needs an explicit migration and redirect policy.
 
 The Cloud preview is a dogfood vertical slice, not a production public service.
 Do not expose it to hostile traffic: public account authentication/recovery,

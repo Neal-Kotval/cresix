@@ -29,6 +29,7 @@ output is redirected away from the console and removed with the test state.
 
 | Suite | Boundary covered |
 | --- | --- |
+| `docs` | Handbook structure, specification status metadata, relative links, and compatibility entry points |
 | `component` | Rust unit/regression tests, including repository semantics |
 | `api` | First boot, authentication, CSRF/origin checks, authorization, invites, persistence |
 | `runner` | Unix-socket framing, malformed/oversized input, duplicate IDs, timeouts |

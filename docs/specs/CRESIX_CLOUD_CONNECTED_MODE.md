@@ -1,20 +1,24 @@
 # Cresix Cloud connected mode
 
-Status: accepted for a dogfood vertical slice
+Status: partially implemented dogfood design; production topology deferred
+Capability status: [Cresix Cloud connected mode](../product/CAPABILITIES.md#cresix-cloud-connected-mode)
 
 ## Product thesis
 
-Cresix Cloud makes a sovereign C6 installation easy to find and reach. It does
-not move the installation's repositories, runtime records, secrets, or local
+Cresix Cloud is intended to make a sovereign C6 installation easy to find and
+reach. The current loopback dogfood slice proves the directory and serial relay
+boundaries without providing the production public service. Cloud does not move
+the installation's repositories, runtime records, secrets, or local
 authorization into a second control plane.
 
 The product has two explicit operating modes:
 
 - **Standalone C6** keeps the current local account, invitation, URL, and
   operator-managed ingress model. It does not require a Cresix account.
-- **Connected C6** adds a Cresix account, a global workspace namespace, a
-  directory entry, and an outbound connector to a managed relay. Disconnecting
-  leaves the local installation intact.
+- **Connected C6** targets a globally unique Cresix account handle, an
+  account-scoped workspace slug, a directory entry, and an outbound connector
+  to a managed relay.
+  Disconnecting leaves the local installation intact.
 
 This split applies YAGNI to centralization: Cresix centralizes only the pieces
 that must be global—identity, namespace reservation, discovery, and
@@ -25,7 +29,7 @@ reachability—while local C6 remains the software authority.
 The friendly URL is a hosted directory page:
 
 ```text
-https://cresix.com/{workspace}/{project}
+https://cresix.com/@{account}/{workspace}/{project}
 ```
 
 Opening the project crosses an explicit origin boundary to its installation:
@@ -37,6 +41,11 @@ https://{opaque-route}.relay.cresix.com/projects/{project-slug}
 The route identifier is opaque and stable across workspace renames. One route
 origin represents one C6 installation, even when that installation contains
 several workspaces.
+
+The dogfood HTTP route remains `/{workspace}/{project}` and its workspace
+namespace is unique inside one preview database. It has no public account
+handle. The three-segment route, handle lifecycle, and redirect/migration
+policy are target contract work rather than current behavior.
 
 The hosted directory must not transparently proxy unrelated C6 authorities
 under paths on `cresix.com`. C6 browser sessions use installation-wide cookie
@@ -53,7 +62,9 @@ sibling of account or relay origins.
 ### Cresix Cloud owns
 
 - immutable cloud account subjects and account sessions;
-- globally unique workspace namespaces and cloud memberships;
+- globally unique account handles, account-scoped workspace slugs, and Cloud
+  memberships in the target service; the preview instead enforces workspace
+  uniqueness within one database;
 - installation registrations, route identifiers, connector credential
   verifiers, revocation, and presence;
 - bindings from a cloud workspace to a local installation and workspace UUID;
@@ -88,7 +99,10 @@ be linked by immutable provider ID rather than mutable handle or email.
 ## Entities
 
 All internal identities are UUIDs. User-facing handles and slugs are validated
-presentation identifiers.
+presentation identifiers. This block is the target conceptual model, not a
+table-for-table description of the dogfood schema. Dogfood has no account
+handle, calls its globally unique preview workspace field `namespace`, and
+creates only the first owner.
 
 ```text
 Account
@@ -98,7 +112,7 @@ CloudSession
   id, account_id, verifier, csrf_verifier, created_at, expires_at, revoked_at
 
 CloudWorkspace
-  id, namespace, name, owner_account_id, created_at
+  id, account_id, slug, name, created_at
 
 CloudMembership
   workspace_id, account_id, role(owner|maintainer|member)
@@ -185,8 +199,10 @@ Cancel | RequestFailed | Ping | Pong
 
 Unknown fields, duplicate request starts, unknown IDs, chunks after completion,
 invalid methods or headers, oversized frames, and illegal state transitions are
-rejected. A newer authenticated connection fences the previous installation
-generation. Disconnection fails in-flight requests without retrying mutations.
+rejected. A newer authenticated connection replaces the previous opaque
+in-memory relay session, and stale cleanup cannot remove that replacement. The
+wire generation remains the constant placeholder `1`. Disconnection fails
+in-flight requests without retrying mutations.
 
 Both ends remove hop-by-hop headers and all client-supplied forwarding and
 internal routing headers. Relay and connector credentials are never forwarded
@@ -241,19 +257,23 @@ production public or hostile multi-tenant use.
 
 ## User journeys
 
-1. Claim a loopback Cloud preview and create a globally unique workspace.
+1. Claim a loopback Cloud preview and create a workspace unique within that
+   preview database.
 2. Register a local C6 installation and copy its one-time connector credential.
 3. Bind the Cloud workspace to an existing local workspace UUID.
 4. Start `c6-connector` with an owner-only credential file.
 5. Publish a bounded catalog projection and observe the installation become
    connected.
-6. Bookmark `cresix.com/{workspace}/{project}` as the claimed account's stable
-   directory URL.
+6. Bookmark `cresix.com/@{account}/{workspace}/{project}` as the claimed
+   account's stable directory URL once account handles and the target route
+   exist.
 7. The workspace member sees the directory doorway and, once an isolated relay
    origin exists, deliberately opens the installation origin where local C6
    authentication remains authoritative.
 8. Revoking the installation terminates ingress; standalone/local access and
-   all local data remain intact.
+   all local data remain intact. In dogfood this is irreversible because
+   credential reissue, same-server re-registration, and workspace rebinding do
+   not exist.
 
 ## Visual system
 
@@ -281,10 +301,16 @@ repositories, roles, and sessions. Changing `C6_PUBLIC_BASE_URL` changes the
 browser origin, so users must authenticate again and may need to update Git
 remotes.
 
-Disconnecting stops and removes the connector credential and revokes the Cloud
-installation/route. The Cloud projection may remain stale until explicitly
+Disconnecting requires the operator to stop the connector, remove its local
+credential file, and revoke the Cloud installation/route. The Cloud projection
+may remain stale until explicitly
 tombstoned, but it must be shown offline and never treated as authoritative.
 Loopback or operator-managed standalone ingress continues to work.
+
+Dogfood revocation cannot be undone. The registration and binding remain
+reserved, and the current API provides no credential reissue, same-server
+re-registration, or workspace rebinding. Production recovery requires a
+separately specified rotation and replacement workflow.
 
 ## Explicit deferrals
 
@@ -301,6 +327,11 @@ Loopback or operator-managed standalone ingress continues to work.
 
 ## Acceptance gates
 
+The first four gates and the serial transport/security subset of the fifth are
+met by the loopback dogfood slice. Concurrent relay admission, a real C6
+browser journey through an isolated origin, and public operations remain
+unmet; see the [capability ledger](../product/CAPABILITIES.md#cresix-cloud-connected-mode).
+
 - Existing standalone QA remains green.
 - Cloud core validators and serialization have unit and abuse tests.
 - Browser bootstrap, CSRF, workspace, registration, binding, revocation, and
@@ -308,8 +339,9 @@ Loopback or operator-managed standalone ingress continues to work.
 - Headless Chromium covers the hosted directory, responsive layout, keyboard
   navigation, connected and offline states, and origin-transition copy.
 - A real local test runs Cloud, a loopback backend, and the connector; verifies
-  status, headers, binary bodies, concurrent requests, offline behavior,
-  revocation, and no automatic mutation retry.
+  status, headers, binary bodies, one serial exchange, offline behavior,
+  revocation, and no automatic mutation retry. Concurrent request behavior is
+  a production-shaped follow-up gate.
 - Source scanning and captured logs show no plaintext session, connector, Git,
   or bootstrap credentials.
 - Documentation and UI describe the phase as dogfood and do not claim secure

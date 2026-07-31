@@ -6,6 +6,7 @@ not count.
 
 | Area | Required behavior | Acceptance boundary |
 | --- | --- | --- |
+| Documentation | Canonical handbooks exist; local links resolve; specifications expose status; legacy overview links do not become competing ledgers | Offline documentation contract |
 | Bootstrap | A fresh server is unclaimed; exactly one valid owner claim wins | Real server process + embedded database |
 | Bootstrap replay | Reusing or racing a claim credential cannot create another owner | Real HTTP requests |
 | Persistence | Owner, invite, project, and revocation state survive restart | Restart with the same `C6_DATA_DIR` |

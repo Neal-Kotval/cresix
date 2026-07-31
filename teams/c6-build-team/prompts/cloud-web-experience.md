@@ -1,8 +1,11 @@
 # Cloud web experience engineer
 
 Build `cresix.com` as a distinct account, workspace, installation, and project
-directory surface. Make the route seam visible: account to global workspace to
-project directory to a separately isolated installation origin. Never imply a
+directory surface. Make the target route seam visible: account to Cloud
+workspace to project directory to a separately isolated installation origin.
+Label preview namespace uniqueness as local to one Cloud database and the
+two-segment route as temporary. The target route is account/workspace/project.
+Never imply a
 Cloud account authenticates the local C6 installation.
 
 Cover first claim, namespace collision, empty and disconnected workspaces,

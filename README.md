@@ -11,11 +11,15 @@ the same typed, pollable interfaces without a privileged side door.
 The repository is named **cresix**. The product is called **C6**.
 
 The repository now also contains a dogfood **Cresix Cloud** service: an
-optional account, global-workspace directory, and outbound relay for sovereign
-C6 installations. Standalone C6 remains supported and keeps authority over
-source, local roles, and runtime state.
+optional account, workspace directory, and outbound relay for sovereign C6
+installations. Namespace uniqueness is limited to one preview Cloud database;
+the production-global service is not shipped. Standalone C6 remains supported
+and keeps authority over source, local roles, and runtime state.
 
-The [C6 manual](docs/README.md) covers product principles, trust,
+The [product handbook](docs/product/README.md),
+[capability ledger](docs/product/CAPABILITIES.md), and
+[architecture handbook](docs/architecture/README.md) define the product and
+system boundaries. The [C6 manual](docs/README.md) also covers trust,
 authorization, API, storage, Git, runner, scheduler, web design, threat model,
 deployment patterns, examples, dogfood, and testing.
 

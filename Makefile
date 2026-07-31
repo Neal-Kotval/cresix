@@ -1,4 +1,4 @@
-.PHONY: dev cloud-dev test build up down doctor team-qa team-smoke
+.PHONY: dev cloud-dev test build up down doctor docs-check team-qa team-smoke
 
 dev:
 	cargo run -p c6-server
@@ -25,6 +25,9 @@ down:
 doctor:
 	@curl --fail --silent http://127.0.0.1:$${C6_PORT:-8787}/healthz
 	@echo " C6 is healthy"
+
+docs-check:
+	python3 qa/tests/docs_contract.py
 
 team-qa:
 	bash teams/c6-build-team/qa/all.sh

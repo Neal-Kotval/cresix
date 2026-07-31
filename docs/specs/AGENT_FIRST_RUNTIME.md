@@ -1,8 +1,9 @@
 # Agent-first runtime, schedules, secrets, and polling
 
-Status: design specification; not implemented
+Status: accepted design; implementation not started beyond listed foundations
 Owners: C6 maintainers
 Last updated: 2026-07-31
+Capability status: [Agents and automation](../product/CAPABILITIES.md#agents-and-automation)
 
 ## 1. Outcome
 

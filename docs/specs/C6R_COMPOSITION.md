@@ -1,9 +1,10 @@
 # C6R: reusable compositions for small software
 
-Status: implementation specification
+Status: accepted design; implementation not started
 Owners: `c6-build-team`
 Target: staged delivery after the connected-mode foundation
 Last updated: 2026-07-31
+Capability status: [C6R composition](../product/CAPABILITIES.md#c6r-composition)
 
 ## 1. Decision
 

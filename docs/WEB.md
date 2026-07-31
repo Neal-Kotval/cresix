@@ -75,16 +75,22 @@ The surface split adds regression requirements for Hub/Admin navigation,
 
 ## Separate Cresix Cloud surface
 
-`cloud-web` is not another route inside local C6 Hub/Admin. It owns the hosted
-account, global workspace, installation, and directory experience. The
-directory URL `cresix.com/{workspace}/{project}` must show an explicit handoff
+`cloud-web` is not another route inside local C6 Hub/Admin. It owns the preview
+Cloud account, workspace, installation, and directory experience. Workspace
+uniqueness is currently local to one preview database; a production-global
+account service is deferred. The target directory URL
+`cresix.com/@{account}/{workspace}/{project}` must show an explicit handoff
 to a separate opaque relay origin; it must not imply that a Cloud session grants
 access to local C6. Disconnected, offline, revoked, and not-found states are
 first-class rather than hidden behind a generic loading state.
 
 The signature route seam makes the authority transition legible: Cloud account
-to global workspace to directory project to isolated installation origin.
+to Cloud workspace to directory project to isolated installation origin.
 One-time connector credentials are shown only in the authenticated creation
 response, are never placed in a URL or fixture, and cannot be recovered from the
 page after dismissal. The Cloud visual and interaction contract is detailed in
 the [connected-mode specification](specs/CRESIX_CLOUD_CONNECTED_MODE.md).
+
+The current loopback preview has no public account handle and temporarily uses
+`/{workspace}/{project}`. UI fixtures must not present that temporary route as
+the settled public namespace model.

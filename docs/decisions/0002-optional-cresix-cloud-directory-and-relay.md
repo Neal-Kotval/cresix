@@ -1,6 +1,7 @@
 # ADR 0002: Optional Cresix Cloud directory and relay
 
-Status: accepted
+Status: accepted target; loopback dogfood slice partially implemented
+Implementation status: [Cloud capability ledger](../product/CAPABILITIES.md#cresix-cloud-connected-mode)
 
 ## Context
 
@@ -17,17 +18,22 @@ self-hosted product boundary and create a much larger distributed system.
 ## Decision
 
 Add an optional Cresix Cloud control plane that owns global accounts,
-workspace namespaces, a bounded project directory, installation registration,
-and managed reachability. Keep Git, runtime state, local roles, local sessions,
-and secrets on the C6 installation.
+account-scoped workspace namespaces, a bounded project directory, installation
+registration, and managed reachability. Keep Git, runtime state, local roles,
+local sessions, and secrets on the C6 installation.
 
-Use `cresix.com/{workspace}/{project}` as a stable directory URL. Route actual
-C6 requests through a separate opaque per-installation origin. A local
-connector establishes one outbound authenticated tunnel; no inbound port or
-same-network connection is required.
+Use `cresix.com/@{account}/{workspace}/{project}` as the target stable directory
+URL. Route actual C6 requests through a separate opaque per-installation origin.
+A local connector establishes one outbound authenticated tunnel; no inbound
+port or same-network connection is required.
 
 Standalone mode remains fully supported. Cloud accounts and local C6
 principals are distinct until a separately reviewed SSO design exists.
+
+The dogfood implementation predates the account-handle route. It temporarily
+uses `/{workspace}/{project}` and globally unique workspace namespaces inside
+one preview database. Account handles and migration/redirect semantics are
+unimplemented and require a follow-up contract before public launch.
 
 ## Consequences
 

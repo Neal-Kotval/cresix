@@ -14,6 +14,9 @@ done
 
 cd "$REPO_ROOT"
 
+qa_heading "Documentation contract"
+python3 "$QA_ROOT/tests/docs_contract.py"
+
 qa_run "Rust formatting" cargo fmt --all -- --check
 qa_run "Rust component regressions" cargo test --workspace --all-targets
 qa_run "Rust lint policy" cargo clippy --workspace --all-targets -- -D warnings
