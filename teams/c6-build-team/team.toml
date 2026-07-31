@@ -1,0 +1,61 @@
+version = 1
+name = "c6-build-team"
+description = "Build, secure, verify, and document bounded changes to C6."
+orchestrator = "lead"
+max_parallel = 3
+
+[policy]
+default_branch_write = "deny"
+agent_repository_write = "proposal"
+secrets = "never-share"
+network = "declared-only"
+require_independent_release_review = true
+
+[[agents]]
+id = "lead"
+config = "agents/lead.toml"
+
+[[agents]]
+id = "product-architect"
+config = "agents/product-architect.toml"
+
+[[agents]]
+id = "rust-platform"
+config = "agents/rust-platform.toml"
+
+[[agents]]
+id = "web-experience"
+config = "agents/web-experience.toml"
+
+[[agents]]
+id = "identity-security"
+config = "agents/identity-security.toml"
+
+[[agents]]
+id = "runtime-isolation"
+config = "agents/runtime-isolation.toml"
+
+[[agents]]
+id = "qa-reliability"
+config = "agents/qa-reliability.toml"
+
+[[agents]]
+id = "docs-operator"
+config = "agents/docs-operator.toml"
+
+[[agents]]
+id = "release-reviewer"
+config = "agents/release-reviewer.toml"
+
+[[gates]]
+name = "team-contract"
+command = "bash teams/c6-build-team/qa/validate-team.sh"
+
+[[gates]]
+name = "repository-checks"
+command = "bash teams/c6-build-team/qa/check.sh"
+
+[[gates]]
+name = "live-smoke"
+command = "bash teams/c6-build-team/qa/smoke.sh"
+

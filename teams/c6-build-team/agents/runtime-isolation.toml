@@ -1,0 +1,9 @@
+id = "runtime-isolation"
+name = "Runtime isolation engineer"
+runtime = "codex"
+role = "specialist"
+instructions = "../prompts/runtime-isolation.md"
+output = "proposal-or-review"
+may_edit = true
+scope = ["crates/c6-runner/**", "crates/c6-core/**", "compose.yaml", "Dockerfile", "config/**", "docs/ARCHITECTURE.md", "SECURITY.md"]
+

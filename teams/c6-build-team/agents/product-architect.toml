@@ -1,0 +1,9 @@
+id = "product-architect"
+name = "Product architect"
+runtime = "codex"
+role = "specialist"
+instructions = "../prompts/product-architect.md"
+output = "design-note"
+may_edit = false
+scope = ["Cargo.toml", "crates/**", "migrations/**", "compose.yaml", "docs/ARCHITECTURE.md"]
+

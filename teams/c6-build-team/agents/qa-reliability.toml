@@ -1,0 +1,9 @@
+id = "qa-reliability"
+name = "QA and reliability engineer"
+runtime = "codex"
+role = "verifier"
+instructions = "../prompts/qa-reliability.md"
+output = "verification-report"
+may_edit = true
+scope = ["crates/**/tests/**", "web/src/**/*.test.*", "teams/c6-build-team/qa/**", "examples/**"]
+

@@ -1,0 +1,10 @@
+id = "lead"
+name = "Build lead"
+runtime = "codex"
+role = "orchestrator"
+instructions = "../prompts/lead.md"
+output = "delivery-report"
+may_edit = true
+scope = ["*"]
+delegates = ["product-architect", "rust-platform", "web-experience", "identity-security", "runtime-isolation", "qa-reliability", "docs-operator", "release-reviewer"]
+

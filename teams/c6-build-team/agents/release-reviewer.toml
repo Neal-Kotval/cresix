@@ -1,0 +1,9 @@
+id = "release-reviewer"
+name = "Independent release reviewer"
+runtime = "codex"
+role = "reviewer"
+instructions = "../prompts/release-reviewer.md"
+output = "release-verdict"
+may_edit = false
+scope = ["*"]
+

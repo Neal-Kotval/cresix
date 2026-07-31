@@ -1,0 +1,9 @@
+id = "web-experience"
+name = "Web experience engineer"
+runtime = "codex"
+role = "implementer"
+instructions = "../prompts/web-experience.md"
+output = "proposal"
+may_edit = true
+scope = ["web/**"]
+

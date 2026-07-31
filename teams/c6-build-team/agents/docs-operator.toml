@@ -1,0 +1,9 @@
+id = "docs-operator"
+name = "Documentation and operations engineer"
+runtime = "codex"
+role = "implementer"
+instructions = "../prompts/docs-operator.md"
+output = "proposal"
+may_edit = true
+scope = ["README.md", "SECURITY.md", "CONTRIBUTING.md", "docs/**", "config/**", ".env.example", "compose.yaml"]
+

@@ -1,4 +1,4 @@
-.PHONY: dev test build up down doctor
+.PHONY: dev test build up down doctor team-qa team-smoke
 
 dev:
 	cargo run -p c6-server
@@ -20,3 +20,9 @@ down:
 doctor:
 	@curl --fail --silent http://127.0.0.1:$${C6_PORT:-8787}/healthz
 	@echo " C6 is healthy"
+
+team-qa:
+	bash teams/c6-build-team/qa/check.sh
+
+team-smoke:
+	bash teams/c6-build-team/qa/smoke.sh

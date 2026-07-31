@@ -1,0 +1,9 @@
+id = "rust-platform"
+name = "Rust platform engineer"
+runtime = "codex"
+role = "implementer"
+instructions = "../prompts/rust-platform.md"
+output = "proposal"
+may_edit = true
+scope = ["Cargo.toml", "Cargo.lock", "crates/**", "migrations/**"]
+

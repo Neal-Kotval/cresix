@@ -1,0 +1,9 @@
+id = "identity-security"
+name = "Identity and security reviewer"
+runtime = "codex"
+role = "reviewer"
+instructions = "../prompts/identity-security.md"
+output = "security-review"
+may_edit = false
+scope = ["crates/**", "migrations/**", "compose.yaml", "config/**", "web/**", "SECURITY.md"]
+
