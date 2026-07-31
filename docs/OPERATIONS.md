@@ -151,6 +151,31 @@ keep the backend private, set the exact stable HTTPS public origin, and require
 C6 authentication. An unavailable tunnel makes the one authority unreachable;
 it does not fail over authority elsewhere.
 
+### Connected-mode operational boundary
+
+Optional Cresix Cloud runs outside the local C6 backup and authority boundary.
+Its account, namespace, installation, binding, catalog, route, and audit data
+belong to the Cloud service. Local SQLite, bare Git, peer sessions, roles,
+runtime records, and secrets remain in `C6_DATA_DIR`. The connector should have
+only an owner-readable credential file and network access to its configured
+Cloud endpoint and fixed loopback C6 origin; it needs no Docker socket, Git
+directory, C6 database, runner key, or host-wide credentials.
+
+Stopping the connector intentionally makes the managed route offline. Revoking
+an installation must terminate its active route and prevent reconnect with the
+old credential, while direct standalone access continues unchanged. A Cloud
+outage has the same availability consequence for directory and managed ingress;
+it must not corrupt, delete, or lock local data. Installation revocation is
+implemented and immediately terminates the connector. In-place connector
+credential rotation and re-enrollment are not implemented; do not claim a
+rotation drill until an authenticated rotate endpoint and overlapping-key
+handoff exist.
+
+The dogfood Cloud service is loopback-only and uses one-time local bootstrap.
+It is not a production account system. Do not put it on the public internet
+until recovery, throttling, abuse response, tenant isolation, relay hardening,
+monitoring, backup/restore, and incident procedures exist and are tested.
+
 ## Persistent data
 
 Compose uses named volumes. `docker volume inspect <name>` is the source of

@@ -39,5 +39,8 @@ cargo test -p c6-core
 cargo test -p c6-git
 cargo test -p c6-server
 cargo test -p c6-runner
+cargo test -p c6-cloud-core
+cargo test -p c6-cloud
+cargo test -p c6-connector
 
 echo "c6-build-team: security regression gate passed"

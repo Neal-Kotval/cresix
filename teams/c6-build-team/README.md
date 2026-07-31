@@ -18,8 +18,12 @@ developed alongside the agent runner. The QA scripts in [`qa/`](qa/) work now.
 | `core-contracts` | Stable domain, wire, lifecycle, and permission types | Code + tests |
 | `git-service` | Validated disk-backed Git operations | Code + tests |
 | `server-control-plane` | HTTP, embedded SQLite, auth, audit, orchestration | Code + tests |
+| `cloud-contracts` | Cloud identifiers, catalog, route, and relay wire contracts | Code + tests |
+| `cloud-control-plane` | Global accounts/namespaces, installation registry, directory, relay authority | Code + tests |
+| `connector-relay` | Fixed-upstream outbound connector and bounded relay transport | Code + tests |
 | `rust-platform` | Cross-crate Rust integration | Code + tests |
 | `web-experience` | React product experience and accessibility | Code + UI tests |
+| `cloud-web-experience` | Cresix account, workspace, installation, and directory UX | Code + UI tests |
 | `identity-security` | Pairing, authorization, credentials, abuse cases | Security review |
 | `runtime-isolation` | Typed runner boundary, simulation, future isolation | Isolation review/code |
 | `qa-reliability` | Test strategy, failure reproduction, release gates | Verification report |
@@ -43,15 +47,21 @@ Agents never share credentials or embed them in fixtures. Branch, commit, push,
 and release actions follow the repository owner's explicit authority and must
 not bypass the final reviewer.
 
-## MVP assumptions
+## Product assumptions
 
-C6 is one self-hosted authority backed by embedded SQLite and disk Git
-repositories. Native peer trust means bootstrap plus invitation-based device
-enrollment; it does not mean decentralized replication, and an IP address is
-never an identity. The web application is same-origin. Privileged work is sent
-to a separate runner using a typed local protocol. Real workload execution,
-hosted identity, federation, relays, and plugin infrastructure remain deferred
-until implemented and tested.
+Standalone C6 is one self-hosted authority backed by embedded SQLite and disk
+Git repositories. Native peer trust means bootstrap plus invitation-based
+device enrollment; it does not mean decentralized replication, and an IP
+address is never an identity. The local web application is same-origin.
+
+Optional connected mode adds a separate Cresix Cloud account/directory authority
+and a least-privilege outbound connector. Cloud catalog data is discovery, not
+local authorization or source truth. Cloud account sessions never authenticate
+local C6, and standalone startup cannot require Cloud. The relay is trusted TLS
+ingress and can observe traffic; it is not end-to-end encrypted. Production
+identity/recovery, public abuse controls, relay isolation/HA, real workload
+execution, federation, and plugin infrastructure remain deferred until
+implemented and tested.
 
 ## Run the QA tooling
 
@@ -77,6 +87,12 @@ Security-focused static and regression gate:
 
 ```bash
 bash teams/c6-build-team/qa/security.sh
+```
+
+Connected Cloud contract, service, connector, and web component gate:
+
+```bash
+bash teams/c6-build-team/qa/cloud.sh
 ```
 
 Headless browser, responsive, and accessibility gate:
@@ -105,6 +121,12 @@ The MVP currently records run intent through HTTP and verifies the typed runner
 independently. Until the server dispatches that intent over the runner socket,
 the dogfood gate must be reported as two verified boundaries—not as proof of an
 end-to-end executed workload.
+
+Similarly, the Cloud component gate does not by itself prove a request crossed
+the relay into a local installation. The connected dogfood claim requires a
+fresh Cloud and C6 lifecycle, real connector, directory handoff, revoke/disconnect
+checks, and standalone survival. Missing that lifecycle must be reported as an
+open gate, not silently downgraded to component coverage.
 
 See [`TEST_MATRIX.md`](qa/TEST_MATRIX.md) for release coverage and
 [`TEAM_SCHEMA.md`](TEAM_SCHEMA.md) for the manifest conventions.

@@ -74,6 +74,50 @@ never authenticates a C6 peer; C6 sessions and separate CLI/Git credentials are
 still required. Do not use an ephemeral URL without understanding that origin
 changes invalidate browser origin assumptions and require CLI/remote rebinding.
 
+## Optional Cresix Cloud connected mode
+
+Connected mode is an alternative managed-ingress path, not a requirement for
+self-hosting. The operator runs the same local C6 authority and a separate
+least-privilege connector process. The connector makes an outbound connection
+to Cresix Cloud and proxies only its configured loopback C6 origin. No inbound
+router rule, same-Wi-Fi connection, public IP, or ngrok account is required.
+
+The stable directory URL and the actual C6 origin are intentionally different:
+
+```text
+https://cresix.com/{workspace}/{project}
+    -> https://{opaque-route}.relay.cresix.com/projects/{project}
+```
+
+The Cloud preview is a dogfood vertical slice, not a production public service.
+Do not expose it to hostile traffic: public account authentication/recovery,
+rate limits, abuse response, relay isolation, multi-node presence, and hardened
+operations remain incomplete. The relay terminates TLS and can observe relayed
+traffic. Operators requiring no Cresix-operated trust should stay in standalone
+mode and provide their own HTTPS ingress.
+
+The Cloud account/directory service, connector binary, and bounded reverse HTTP
+transport exist. A real-process regression proves Cloud-to-connector request,
+offline, revocation, and header/cookie isolation against an authenticated
+C6-compatible backend. It does not prove the production browser topology: the
+loopback same-origin path strips cookies, and the UI disables opening it. Keep
+using operator-provided ingress for actual browser access until isolated
+per-installation origins, DNS, TLS, and a real C6 session journey exist.
+
+To inspect the local Cloud account and directory preview from source:
+
+```bash
+npm ci --prefix cloud-web
+npm run build --prefix cloud-web
+C6_CLOUD_DATA_DIR=.c6-cloud cargo run -p c6-cloud
+```
+
+Open `http://127.0.0.1:8790`. In a second trusted local terminal, read the
+unclaimed first-account proof from `.c6-cloud/bootstrap-token`; the service
+consumes it after claim. Do not paste it into command arguments or shared logs.
+The [connected connector example](../examples/connected-cloud/) documents the
+separate owner-only config and credential files.
+
 ## Always-on Linux host
 
 This is the recommended future shape for a small team: run the same Compose
@@ -99,11 +143,15 @@ control plane. Restore/migration must leave only one writable authority.
 - Kubernetes/HA, remote runners, or federation
 - Public/anonymous projects
 - Treating C6 as a project hosting runtime
+- Treating the connected-mode dogfood relay as production multi-tenant ingress
 
 See [ADR 0001](decisions/0001-single-authority-self-hosting.md) for the
 authority/portability decision and the
 [agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md) for deferred
 hosting and sandbox design.
+
+See [ADR 0002](decisions/0002-optional-cresix-cloud-directory-and-relay.md)
+for the optional Cloud ownership and origin boundaries.
 
 See [Configuration](CONFIGURATION.md) and [Operations](OPERATIONS.md) for exact
 settings and backup/upgrade procedures.

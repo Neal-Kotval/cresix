@@ -2,6 +2,9 @@
 members = [
   "crates/c6-cli",
   "crates/c6-client",
+  "crates/c6-cloud",
+  "crates/c6-cloud-core",
+  "crates/c6-connector",
   "crates/c6-core",
   "crates/c6-git",
   "crates/c6-server",

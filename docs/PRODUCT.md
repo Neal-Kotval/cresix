@@ -16,6 +16,34 @@ credentials, supports a thin CLI, and can serve opt-in authenticated read-only
 Git smart HTTP. It does not host applications, accept Git pushes, execute jobs,
 store secret values, or provide recoverable login.
 
+## Standalone and connected modes
+
+C6 has one local product authority and two deployment choices:
+
+- **Standalone C6** requires no Cresix account or Cresix-operated service. The
+  operator provides a reachable HTTPS origin when remote access is needed.
+- **Connected C6** keeps that local authority and adds a Cresix Cloud account,
+  globally unique workspace namespace, directory listing, installation
+  registration, and outbound managed relay.
+
+Connected mode does not upload Git repositories, runtime records, local
+sessions, local roles, or secret values into Cresix Cloud. A Cloud account is
+not a local C6 login, and Cloud workspace ownership does not confer local
+server-administrator authority. Disconnecting or revoking the connector stops
+managed reachability but does not delete or disable the standalone installation.
+
+The intended sharing doorway is `https://cresix.com/{workspace}/{project}`.
+Actual C6 traffic crosses an explicit origin boundary to an opaque,
+per-installation relay origin. This avoids putting several independent C6
+cookie and CSRF authorities under one browser origin. See the
+[connected-mode specification](specs/CRESIX_CLOUD_CONNECTED_MODE.md).
+
+The current dogfood implementation includes the separate Cloud account and
+directory service, typed relay contracts, and an outbound connector with a
+fixed loopback upstream. Component tests cover those boundaries. A complete
+browser request through the Cloud relay into a live C6 installation is not yet
+release-verified and must not be described as working public hosting.
+
 ## Two web surfaces, one C6
 
 C6 presents two product surfaces over the same server, session, API, and data
@@ -49,6 +77,9 @@ login/status/logout, project listing, clone, remote setup, and diagnostics.
   the bootstrap administrator session through C6 Admin and host tooling.
 - **Contributor:** reads or proposes changes within a workspace role but does
   not administer the server; their primary surface is C6 Hub.
+- **Cloud account holder:** reserves a global namespace and registers a local
+  installation for discovery/reachability. This identity remains distinct from
+  every installation-local peer in the initial connected design.
 
 The current security boundary assumes these people trust one another not to run
 hostile code. C6 still protects against accidents, stale authorization, token
@@ -74,6 +105,8 @@ Admin does not automate TLS, backups, hosting, or runner dispatch.
 ## Principles
 
 - **Self-hosted authority:** the installation owns identity and authorization.
+- **Optional centralization:** Cloud owns only global account, namespace,
+  directory, and route state; connected mode is never required for local use.
 - **Remote-first, not proximity-based:** network location is never identity.
 - **Git is source truth:** commits and trees stay in Git, not duplicated in SQL.
 - **Recorded intent is not execution:** UI and APIs expose unsupported runtime
@@ -85,6 +118,8 @@ Admin does not automate TLS, backups, hosting, or runner dispatch.
 - **Local QA:** extensive reproducible gates without requiring hosted CI.
 - **Agent legibility:** JSON, explicit state, stable IDs, and future cursors are
   preferred over scraping screens or granting ambient host access.
+- **Reviewable reuse:** future C6Rs pin reusable content and agent-team
+  compositions to immutable Git source and digests; resolution never runs code.
 
 ## Non-goals for this release
 
@@ -95,6 +130,7 @@ Admin does not automate TLS, backups, hosting, or runner dispatch.
 - Provide password, passkey, SSH-key, OAuth, OIDC, or recovery authentication
 - Support anonymous/public projects, hostile multi-tenancy, HA, or federation
 - Replace GitHub issues, project boards, CI checks, or merge queues
+- Treat a Cloud session as local C6 SSO or the relay as end-to-end encrypted
 
 These boundaries keep the current product honest and define the next useful
 vertical slices without implying they already exist.

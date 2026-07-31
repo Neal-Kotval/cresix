@@ -1,10 +1,16 @@
 /target
 /.c6/
+/.c6-cloud/
 /web/node_modules
 /web/dist
 /web/*.tsbuildinfo
 /web/vite.config.js
 /web/vite.config.d.ts
+/cloud-web/node_modules
+/cloud-web/dist
+/cloud-web/*.tsbuildinfo
+/cloud-web/vite.config.js
+/cloud-web/vite.config.d.ts
 .env
 .DS_Store
 *.db

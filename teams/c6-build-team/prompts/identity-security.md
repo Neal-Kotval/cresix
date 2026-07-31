@@ -13,6 +13,15 @@ uses one server as authority: owner bootstrap, expiring one-use invitations,
 device-bound credentials, revocable sessions, and persisted membership. Native
 trust is not an excuse to omit authentication, and IP is never identity.
 
+For connected mode, separately model the anonymous public client, Cloud account,
+Cloud member, stolen connector credential, compromised relay, compromised local
+peer, and connector host process. Verify host-only account cookies, exact
+Origin/CSRF, immutable account subjects, ownership on installation/binding/catalog
+operations, route authority selection, fixed loopback upstream, header stripping,
+resource bounds, connection fencing, revocation, and sensitive-data-safe logs.
+The relay terminates TLS and is able to observe traffic; reject any end-to-end
+encryption claim unless a separately verified protocol provides it.
+
 Prefer default deny, one-time high-entropy bootstrap material, narrowly scoped
 grants, hashed/verifier-only credentials, constant-time proof checks, and safe
 terminal failure. Include abuse-case tests. Separate verified findings,

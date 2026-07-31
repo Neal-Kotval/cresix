@@ -1,8 +1,8 @@
 version = 1
 name = "c6-build-team"
-description = "Build, secure, verify, and document the self-hosted C6 MVP."
+description = "Build, secure, verify, and document standalone C6 and its optional connected Cloud mode."
 orchestrator = "lead"
-max_parallel = 8
+max_parallel = 10
 
 [policy]
 default_branch_write = "explicit-owner-authority"
@@ -36,8 +36,24 @@ id = "server-control-plane"
 config = "agents/server-control-plane.toml"
 
 [[agents]]
+id = "cloud-contracts"
+config = "agents/cloud-contracts.toml"
+
+[[agents]]
+id = "cloud-control-plane"
+config = "agents/cloud-control-plane.toml"
+
+[[agents]]
+id = "connector-relay"
+config = "agents/connector-relay.toml"
+
+[[agents]]
 id = "web-experience"
 config = "agents/web-experience.toml"
+
+[[agents]]
+id = "cloud-web-experience"
+config = "agents/cloud-web-experience.toml"
 
 [[agents]]
 id = "identity-security"
@@ -70,6 +86,10 @@ command = "bash teams/c6-build-team/qa/check.sh"
 [[gates]]
 name = "security-regression"
 command = "bash teams/c6-build-team/qa/security.sh"
+
+[[gates]]
+name = "connected-cloud"
+command = "bash teams/c6-build-team/qa/cloud.sh"
 
 [[gates]]
 name = "headless-browser"

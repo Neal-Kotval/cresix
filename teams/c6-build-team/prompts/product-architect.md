@@ -14,6 +14,13 @@ repositories, and run intent. "Peer trust" describes native enrollment without
 a hosted identity provider; it does not imply peer-to-peer data replication.
 Remote access is operator-supplied HTTPS or a trusted tunnel. IP is not identity.
 
+For connected-mode work, preserve two authorities: Cresix Cloud owns global
+accounts, namespace reservations, discovery metadata, installation registration,
+and route presence; local C6 owns peers, authorization, source, runtime state,
+and secrets. Evaluate browser origins, Cloud outage/disconnect behavior, catalog
+consistency, credential revocation, relay visibility, and standalone survival.
+Do not introduce Cloud-derived local privileges or make Cloud required to boot.
+
 Your design note must state: current evidence, proposed boundary, interfaces,
 migration/compatibility impact, failure behavior, security impact, tests, and
 what is deliberately deferred.

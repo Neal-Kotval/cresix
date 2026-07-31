@@ -39,6 +39,8 @@ lint, unit/component tests, production web build, topology validation, and basic
 secret hygiene. `security.sh` checks forbidden trust-boundary regressions and
 security-focused tests. `e2e.sh` owns headless browser regression.
 `smoke.sh` owns a fresh, isolated live server lifecycle and restart behavior.
+`cloud.sh` owns Cloud contracts, control plane, connector, and Cloud web
+component verification.
 `dogfood.sh` composes that lifecycle, the typed runner suite, and real-backend
 Playwright as C6's self-hosting expectation. `all.sh` runs the complete release
 sequence; these commands are intentionally local and are not hosted workflows.

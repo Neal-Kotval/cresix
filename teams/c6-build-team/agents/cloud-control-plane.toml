@@ -1,0 +1,8 @@
+id = "cloud-control-plane"
+name = "Cloud control-plane engineer"
+runtime = "codex"
+role = "implementer"
+instructions = "../prompts/cloud-control-plane.md"
+output = "proposal"
+may_edit = true
+scope = ["crates/c6-cloud/**"]

@@ -47,6 +47,45 @@ repositories. A single local data directory makes a laptop install portable and
 recoverable. PostgreSQL, object storage, a private registry, remote runners,
 and multiple control-plane replicas are deferred until real use requires them.
 
+## Optional connected topology
+
+Connected mode adds a separate hosted control plane and an outbound connector;
+it does not replace or replicate the local authority:
+
+```text
+browser -> cresix.com/{workspace}/{project}      directory authority
+                       |
+                       +-> deliberate navigation to an opaque relay origin
+                                                |
+                                                v
+                                      Cresix Cloud relay
+                                                ^
+                                                | outbound connection
+                                        c6-connector
+                                                | fixed loopback origin
+                                                v
+                                         local C6 server
+                                      SQLite + bare Git stay here
+```
+
+Cresix Cloud owns account subjects, global namespace reservations,
+installation registrations, connector credential verifiers, route presence,
+workspace-to-installation bindings, and a bounded project catalog projection.
+Local C6 remains authoritative for peers, memberships, authorization, source,
+credentials, runs, deployments, schedules, and secrets. Catalog state is
+eventually consistent discovery metadata; it cannot authorize a local request.
+
+One outbound connector serves one installation and is restricted to one
+configured loopback HTTP origin. Route selection is derived from the validated
+relay authority, never from a client-controlled forwarding header. A newer
+authenticated connector generation fences an older one. A Cloud outage can
+remove discovery and managed ingress, but local access and data remain usable.
+
+The relay terminates TLS and can observe relayed cookies, credentials, source,
+and response bodies. It is trusted ingress, not relay-blind end-to-end
+encryption. Untrusted project applications require a separate registrable
+domain from both Cloud accounts and C6 relay origins.
+
 ## Trust and authorization
 
 Native peer trust separates proof of possession from authorization:
@@ -167,3 +206,6 @@ The staged contract is in the
 Ingress is similarly replaceable. ngrok, Tailscale, Cloudflare Tunnel, Caddy,
 or a conventional reverse proxy can provide reachability and TLS; none is C6
 identity or authority. See [ADR 0001](decisions/0001-single-authority-self-hosting.md).
+
+The optional Cresix-managed directory and relay are recorded in
+[ADR 0002](decisions/0002-optional-cresix-cloud-directory-and-relay.md).

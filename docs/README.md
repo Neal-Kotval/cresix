@@ -9,6 +9,8 @@ separates the working local collaboration system from the larger product idea.
 - [Glossary](GLOSSARY.md): one meaning for every C6 term
 - [Architecture](ARCHITECTURE.md): process and persistence boundaries
 - [Roadmap](ROADMAP.md): implemented and deferred capabilities
+- [Cresix Cloud connected-mode specification](specs/CRESIX_CLOUD_CONNECTED_MODE.md):
+  optional accounts, directory, installation registration, and managed relay
 
 ## Trust and interfaces
 
@@ -43,8 +45,12 @@ separates the working local collaboration system from the larger product idea.
   the baseline when the spec was written; this manual records implemented truth.
 - [ADR 0001](decisions/0001-single-authority-self-hosting.md): one authority
   per sovereign installation and replaceable ingress
+- [ADR 0002](decisions/0002-optional-cresix-cloud-directory-and-relay.md): keep
+  standalone sovereignty while adding an optional global directory and relay
 - [Agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md): pollable
   APIs, schedules, runtime adapters, secrets, approvals, and future MCP
+- [C6R composition specification](specs/C6R_COMPOSITION.md): immutable reusable
+  content and agent-team composition, with active runtimes deliberately deferred
 
 Every page uses **implemented** for behavior present and tested in this
 revision, and **deferred** for design intent. A type, UI mock, or manifest field

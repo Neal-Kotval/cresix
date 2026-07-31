@@ -1,0 +1,15 @@
+cloud_origin = "http://127.0.0.1:8790"
+local_origin = "http://127.0.0.1:8787"
+installation_id = "00000000-0000-0000-0000-000000000001"
+binding_id = "00000000-0000-0000-0000-000000000002"
+local_workspace_id = "00000000-0000-0000-0000-000000000003"
+
+# Keep credentials in two separate owner-only files outside the repository.
+cloud_credential_file = "/private/path/cresix-connector.token"
+local_credential_file = "/private/path/c6-api.token"
+
+# Dogfood only. Non-loopback Cloud endpoints must use HTTPS.
+allow_insecure_cloud_loopback = true
+catalog_interval_seconds = 60
+request_timeout_seconds = 30
+max_in_flight = 32

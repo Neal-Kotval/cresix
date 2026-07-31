@@ -1,0 +1,8 @@
+id = "connector-relay"
+name = "Connector and relay engineer"
+runtime = "codex"
+role = "implementer"
+instructions = "../prompts/connector-relay.md"
+output = "proposal"
+may_edit = true
+scope = ["crates/c6-connector/**"]

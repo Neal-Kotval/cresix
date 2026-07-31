@@ -70,6 +70,54 @@ for those features. Their intended boundaries are described in the
 [agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md); settings
 become part of this reference only when a working vertical slice ships.
 
+## Connected-mode configuration
+
+Standalone C6 has no Cresix Cloud setting and must continue to start without a
+Cloud account or network dependency. Connected mode is implemented by separate
+`c6-cloud` and `c6-connector` processes; the local C6 server must not receive a
+Cloud account session or connector secret.
+
+### Cloud service
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `C6_CLOUD_BIND` | `127.0.0.1` | Cloud listener address. This dogfood revision refuses every non-loopback bind. |
+| `C6_CLOUD_PORT` | `8790` | Cloud listener port. |
+| `C6_CLOUD_PUBLIC_ORIGIN` | `http://127.0.0.1:${C6_CLOUD_PORT}` | Exact HTTP(S) browser origin. Paths, queries, fragments, and embedded credentials are rejected. |
+| `C6_CLOUD_DATA_DIR` | `.c6-cloud` | Private Cloud SQLite and first-account bootstrap-token directory. This is separate from `C6_DATA_DIR`. |
+| `C6_CLOUD_WEB_DIR` | `cloud-web/dist` | Built Cresix Cloud web assets. |
+
+On an unclaimed service, Cloud writes the one-time account bootstrap proof to
+`${C6_CLOUD_DATA_DIR}/bootstrap-token`. Keep the directory owner-only and show
+the token only in a local trusted terminal. Claim consumes the proof. There is
+no environment-variable override because putting a bootstrap proof into shared
+process configuration broadens its exposure.
+
+### Connector file
+
+`c6-connector --config <path>` reads a strict TOML file. On Unix the config and
+each credential file must be regular, owner-only files (mode `0600`) with no
+additional hard links. The config keys are:
+
+| Key | Meaning |
+| --- | --- |
+| `cloud_origin` | Bare HTTPS Cloud origin; loopback HTTP is accepted only with the explicit dogfood flag below. |
+| `local_origin` | Exactly `http://127.0.0.1:<port>`; other hosts, schemes, paths, or missing ports are rejected. |
+| `installation_id` | Cloud-issued installation UUID. |
+| `binding_id` | Cloud-issued workspace-binding UUID. |
+| `local_workspace_id` | Existing installation-local workspace UUID. |
+| `cloud_credential_file` | Separate file containing the one-time-issued connector credential. |
+| `local_credential_file` | Separate file containing a local C6 API credential for bounded catalog reads. |
+| `allow_insecure_cloud_loopback` | Defaults `false`; set `true` only for local HTTP dogfood. |
+| `catalog_interval_seconds` | Defaults `60`; accepted range 10 through 86,400. |
+| `request_timeout_seconds` | Defaults `30`; accepted range 1 through 120. |
+| `max_in_flight` | Defaults `32`; accepted range 1 through 32. |
+
+See the credential-free
+[`connector.example.toml`](../examples/connected-cloud/connector.example.toml).
+Never put a connector credential in Git, a URL, the config file, process
+arguments, catalog metadata, or shared logs.
+
 ## Secret handling
 
 Treat `.env` as private operator configuration even though the default Compose

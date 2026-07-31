@@ -38,6 +38,32 @@ cursors, long polling, schedule dispatch, Docker execution, secrets, and MCP
 remain future gates defined in the
 [agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md).
 
+## Connected-mode dogfood
+
+The Cloud phase adds a separate local dogfood topology. The automated gate runs
+a fresh loopback Cloud service, a real outbound connector, and a
+test-controlled authenticated C6-compatible HTTP backend. It claims Cloud,
+reserves a namespace, registers and binds the installation, publishes bounded
+catalog data, checks the authenticated directory, traverses the real WebSocket
+relay transport, verifies header/cookie isolation, tests offline and revoked
+states, and cleans up every process and temporary credential.
+
+The loopback relay is deliberately a same-origin path stand-in, so it strips
+`Cookie` and `Set-Cookie` and the Cloud UI does not offer browser opening for
+that URL. A real C6 browser journey and local session require the planned
+per-installation relay origin plus matching `C6_PUBLIC_BASE_URL`; that isolated
+origin, public DNS, and TLS lifecycle remain a release gate rather than a
+property inferred from the transport test. Headless browser coverage separately
+verifies the directory/origin-transition UX with controlled fixtures.
+
+That proves a single-machine vertical slice of directory and managed HTTP
+transport, not the production browser-origin topology.
+It does **not** prove public account recovery, hostile multi-tenancy, relay HA,
+internet-scale abuse resistance, end-to-end encrypted relay traffic, or real
+workload hosting. The test must use synthetic credentials and temporary data;
+it may not depend on a developer Cloud account, DNS ownership, ngrok, ambient
+browser state, or internet access.
+
 ## Why no hosted CI
 
 The project intentionally makes one local command authoritative so a fork or

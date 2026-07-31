@@ -26,6 +26,10 @@ sandbox permission; a skipped security-boundary test is not a pass.
 | Playwright | real-backend first-run and collaboration journeys |
 | Black-box QA | binaries over real HTTP and Unix sockets |
 | Packaging | Dockerfile/Compose shape and secret/socket boundaries |
+| `c6-cloud-core` | cloud identifier, route, catalog, frame, and limit contracts |
+| `c6-cloud` | account/bootstrap, namespace, installation, binding, catalog, revocation, and relay authorization |
+| `c6-connector` | fixed-upstream enforcement, credential handling, frame state machine, bounds, fencing, and reconnect policy |
+| Cloud web | account claim, workspace/installation setup, directory doorway, disconnected/revoked and accessible states |
 
 ## Required regression shape
 
@@ -45,6 +49,15 @@ Use injected clocks instead of sleeps, temporary directories instead of `.c6`,
 random loopback ports, synthetic high-entropy credentials, and complete cleanup.
 Never inspect or reuse `~/.codex`, SSH private keys, browser profiles, or cloud
 credentials.
+
+Connected-mode tests must use loopback listeners, temporary Cloud and C6 data
+directories, synthetic connector credentials, and a test-controlled route
+authority. Required negative cases include wrong Origin/CSRF, namespace
+collision, cross-owner installation access, stale catalog revisions, unknown or
+revoked route, credential replay, arbitrary-upstream attempts, forbidden
+forwarding headers, oversized bodies/frames, queue/concurrency saturation,
+disconnect during mutation, and replacement-connection fencing. Tests must
+also prove standalone C6 starts and remains usable with Cloud absent.
 
 ## Before handing off
 

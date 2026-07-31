@@ -12,6 +12,7 @@ consistency—not deployability or sandbox enforcement.
 | [Agent proposal](../examples/agent-proposal/) | agent-config path, no egress, proposal-only write intent | Codex, credentials, parsing/execution of agent config |
 | [Team tracker](../examples/team-tracker/) | service plus cron, database/files/secret declarations | provisioning, secret value, executables |
 | [Weeknote](../examples/weeknote/) | composed service, sync job, scheduled agent, egress intent | application, OpenAI call, runtime isolation |
+| [Connected Cloud](../examples/connected-cloud/) | owner-only connector config and separate credential files | account, credentials, DNS, or production relay |
 
 Validate all examples with the same parser used by the server:
 
@@ -37,3 +38,7 @@ discover the project, but C6 does not yet poll events, dispatch the declared
 job, resolve a secret, start Docker, or create a proposal branch. The intended
 runtime flow is documented separately in the
 [agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md).
+
+The connected example is not a project manifest and is therefore not processed
+by `examples/validate.sh`. Its placeholder UUIDs and paths must be replaced only
+after an authenticated Cloud installation/binding flow supplies real values.

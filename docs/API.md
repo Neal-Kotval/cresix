@@ -5,6 +5,13 @@ origin. Unknown `/api` paths return a structured JSON `404`; they never fall
 through to the SPA. API responses use `Cache-Control: no-store` and all
 responses receive content-type, referrer, permissions, and CSP headers.
 
+This page describes the local C6 authority. Optional `c6-cloud` also uses a
+versioned `/api/v1` namespace, but it is a separate origin, session, database,
+and authorization system. Browser cookies are not interchangeable; a Cloud
+account never authenticates a local endpoint. Its account, namespace,
+installation, binding, catalog, and relay routes are specified in
+[Cresix Cloud connected mode](specs/CRESIX_CLOUD_CONNECTED_MODE.md).
+
 ## Conventions
 
 - Default request body limit: 64 KiB; manifest validation: 1 MiB.

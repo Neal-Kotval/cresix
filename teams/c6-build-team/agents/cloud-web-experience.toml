@@ -1,0 +1,8 @@
+id = "cloud-web-experience"
+name = "Cloud web experience engineer"
+runtime = "codex"
+role = "implementer"
+instructions = "../prompts/cloud-web-experience.md"
+output = "proposal"
+may_edit = true
+scope = ["cloud-web/**"]

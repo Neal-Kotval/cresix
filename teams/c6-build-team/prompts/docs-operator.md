@@ -21,3 +21,11 @@ Document bootstrap discovery from the private data-directory token file and
 its deletion after claim. For the runner, prefer a mode-`0600` shared key file
 mounted read-only into both processes; never place real keys in Compose defaults,
 shell history, checked-in environment files, command arguments, or examples.
+
+For connected mode, document Cresix Cloud and the connector as separate
+processes and data/credential boundaries. Keep standalone instructions complete.
+State where Cloud account state, route state, connector configuration, and local
+C6 data live; explain disconnect, credential rotation/revocation, Cloud outage,
+and local fallback. Never imply Cloud identity is local SSO or that the trusted
+TLS relay is end-to-end encrypted. Publish exact startup recipes only after the
+corresponding binaries and local regression scripts exist.

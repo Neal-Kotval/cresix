@@ -6,4 +6,4 @@ instructions = "../prompts/lead.md"
 output = "delivery-report"
 may_edit = true
 scope = ["*"]
-delegates = ["product-architect", "core-contracts", "git-service", "server-control-plane", "rust-platform", "web-experience", "identity-security", "runtime-isolation", "qa-reliability", "docs-operator", "release-reviewer"]
+delegates = ["product-architect", "core-contracts", "git-service", "server-control-plane", "cloud-contracts", "cloud-control-plane", "connector-relay", "rust-platform", "web-experience", "cloud-web-experience", "identity-security", "runtime-isolation", "qa-reliability", "docs-operator", "release-reviewer"]

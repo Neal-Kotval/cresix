@@ -54,13 +54,51 @@ shapes remain unchecked.
 - [ ] Agent-generated proposal branches and pull requests
 - [ ] Thin MCP adapter over stable authenticated HTTP operations
 
+## Reusable C6 compositions
+
+- [x] C6R composition, authority, manifest, lock, and threat-model specification
+- [ ] Strict `c6r.toml` parser and deterministic safe-closure digest
+- [ ] Committed `c6r.lock` with exact Git revision and content digest
+- [ ] Passive `content` and `agent_team` materialization without code execution
+- [ ] Reviewable update diff and local validation/status commands
+- [ ] Active command, MCP, app, service, job, and workflow activation only after
+  runtime, secret, network, provenance, and audit gates exist
+
+See the [C6R composition specification](specs/C6R_COMPOSITION.md). C6Rs do not
+replace language package managers, local policy, or the C6 sandbox boundary.
+
 ## Earned extensions
 
-Only add these after a concrete deployment requires them:
+Only add these after a concrete deployment requires them. The accepted Cloud
+dogfood slice pulls a narrow directory/relay experiment forward without
+centralizing local authority:
+
+### Optional Cresix Cloud
+
+- [x] Connected-mode specification and authority/origin decision
+- [x] Loopback-only Cloud account bootstrap and host-only session
+- [x] Global workspace namespace and installation registration
+- [x] One-time, hashed, independently revocable connector credential
+- [x] Bounded project catalog projection and directory doorway
+- [x] Outbound connector component with fixed local origin, bounded protocol,
+  catalog publication, and reconnect behavior
+- [x] Release-verified serial reverse HTTP transport with offline/revoke and
+  negative header/cookie security cases against a C6-compatible backend
+- [ ] Isolated per-installation relay origins with a real C6 browser session,
+  reconnect, concurrency/overload, and standalone fallback journey
+- [ ] Production account login/recovery, throttling, abuse controls, relay
+  isolation, HA presence, and incident operations
+
+Checked items have working components and targeted local coverage. The
+remaining browser-origin journey stays unchecked until a real browser request
+crosses an isolated relay origin into local C6, then proves reconnect and
+standalone fallback. A Cloud account must not become local C6 SSO, and
+standalone startup must not acquire a Cloud dependency.
+
+### Later, demand-driven extensions
 
 - Durable re-authentication and owner recovery
 - GitHub OAuth, company OIDC, SCIM, or group synchronization
-- Operator-provided relay integration or a hosted C6 relay
 - Remote runners and stronger microVM isolation
 - Workload PostgreSQL, object buckets, or an external OCI registry
 - Multi-server federation, high availability, or Kubernetes

@@ -18,7 +18,7 @@ qa_run "Rust formatting" cargo fmt --all -- --check
 qa_run "Rust component regressions" cargo test --workspace --all-targets
 qa_run "Rust lint policy" cargo clippy --workspace --all-targets -- -D warnings
 
-qa_run "Acceptance process binaries" cargo build -p c6-server -p c6-runner -p c6-cli
+qa_run "Acceptance process binaries" cargo build -p c6-server -p c6-runner -p c6-cli -p c6-cloud -p c6-connector
 
 qa_heading "Real-process API regressions"
 python3 "$QA_ROOT/tests/api_regression.py"
@@ -38,6 +38,9 @@ npm --prefix web test -- --run
 qa_heading "Frontend production build"
 npm --prefix web run build
 
+qa_heading "Cresix Cloud component regressions"
+bash teams/c6-build-team/qa/cloud.sh
+
 if ! npm --prefix web run 2>/dev/null | grep -q 'test:e2e'; then
   printf 'required QA suite missing: web package has no test:e2e script\n' >&2
   exit 1
@@ -55,12 +58,16 @@ npm --prefix web run test:e2e &
 qa_fixture_pid=$!
 C6_E2E_SKIP_BUILD=1 node web/scripts/run-real-e2e.mjs &
 qa_real_pid=$!
+npm --prefix cloud-web run test:e2e &
+qa_cloud_pid=$!
 qa_fixture_status=0
 qa_real_status=0
+qa_cloud_status=0
 wait "$qa_fixture_pid" || qa_fixture_status=$?
 wait "$qa_real_pid" || qa_real_status=$?
-if (( qa_fixture_status != 0 || qa_real_status != 0 )); then
-  printf 'browser QA failed (fixture=%s real=%s)\n' "$qa_fixture_status" "$qa_real_status" >&2
+wait "$qa_cloud_pid" || qa_cloud_status=$?
+if (( qa_fixture_status != 0 || qa_real_status != 0 || qa_cloud_status != 0 )); then
+  printf 'browser QA failed (hub-fixture=%s hub-real=%s cloud=%s)\n' "$qa_fixture_status" "$qa_real_status" "$qa_cloud_status" >&2
   exit 1
 fi
 

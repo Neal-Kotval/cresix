@@ -19,10 +19,24 @@ Use the relevant rows during feature work and all blocking rows before release.
 | Web access | Keyboard/focus; landmarks/names; reduced motion; narrow viewport | Playwright |
 | Operations | Fresh install; restart persistence; backup/restore; bad data dir | Smoke/system |
 | Dogfood | Fresh claim; `cresix` project; Git reads; run boundary; restart; real browser | Dogfood |
+| Cloud identity | Loopback bootstrap; host-only cookie; Origin/CSRF; ownership; session revoke | Cloud/security |
+| Cloud namespace | Validation; collision; enumeration-safe errors; immutable ID/route | Cloud tests |
+| Installation | One-time credential; hashed verifier; cross-owner denial; revoke/fence | Cloud/security |
+| Catalog | Owner/binding authorization; bounds; monotonic revision; no local mutation | Cloud tests |
+| Connector | Owner-only config; fixed loopback upstream; no credential/header forwarding | Connector/security |
+| Relay protocol | Invalid/duplicate/late frames; bounds; concurrency; timeout; cancellation | Contract/integration |
+| Route ingress | Unknown/offline/revoked route; authority-derived selection; overload/failure status | Integration |
+| Cloud web | Claim; workspace; installation; credential reveal; directory; disconnected/revoked | Vitest/Playwright |
+| Connected dogfood | Fresh Cloud+C6; real connector/relay; directory handoff; revoke; standalone survives | Dogfood |
 
 The MVP's runner may simulate execution. Container escape, real workload egress,
 and cross-project runtime isolation are release gates only when a real execution
 backend is introduced; they must not be marked passing against a simulator.
+
+The connected Cloud component gate may pass before a real relay lifecycle gate
+exists. It must not be reported as production reachability, public account
+security, relay HA, or end-to-end encryption. The delivery report names every
+unimplemented or unexecuted connected row explicitly.
 
 ## Evidence format
 

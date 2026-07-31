@@ -3,6 +3,26 @@
 - **C6 / cresix:** C6 is the product; `cresix` is its repository and Compose
   project name.
 - **Installation:** one authoritative C6 server, SQLite store, and Git root.
+- **Standalone mode:** C6 running without a Cresix account or Cresix-operated
+  dependency; the operator owns any remote HTTPS ingress.
+- **Connected mode:** optional Cloud directory and managed reachability layered
+  onto an otherwise sovereign local installation.
+- **Cresix Cloud:** separate hosted authority for global accounts, namespaces,
+  installation registrations, catalog projections, and relay presence. It is
+  not source, runtime, secret, or local-authorization authority.
+- **Cloud account:** hosted identity used for global namespace and installation
+  administration. It is not a local C6 peer or login in the first slice.
+- **Cloud workspace:** globally unique directory namespace with Cloud
+  membership; it binds to, but does not replace, one local workspace.
+- **Workspace binding:** mapping from a Cloud workspace to an installation and
+  installation-local workspace UUID. It never grants a local role.
+- **Catalog projection:** bounded, versioned project discovery metadata
+  published by an installation. It is eventually consistent and never source
+  or authorization truth.
+- **Connector:** separate least-privilege process that authenticates outbound to
+  Cloud and proxies only one configured loopback C6 origin.
+- **Relay origin:** opaque per-installation browser origin selected by the Cloud
+  route registry. It is intentionally distinct from `cresix.com` account cookies.
 - **C6 Hub:** web surface for workspace and project collaboration. Its canonical
   first-slice routes are `/` and `/projects/*`. Workspace member management is
   not implemented yet.

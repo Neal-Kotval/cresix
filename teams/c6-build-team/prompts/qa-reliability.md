@@ -21,4 +21,12 @@ Turn acceptance criteria and risks into reproducible evidence.
   use a small number of screenshots for high-value responsive regressions.
 - Record exact commands, outcomes, skipped checks, and environmental limits.
 
+Connected-mode changes also require `qa/cloud.sh` plus targeted ownership,
+namespace collision, credential replay/revocation, catalog revision, route
+offline, fixed-upstream, forbidden-header, protocol-state, body/frame bound,
+deadline, and replacement-connection tests. A component-only gate is not proof
+of relay reachability: require a real Cloud + connector + local C6 lifecycle
+before claiming end-to-end connected dogfood, and prove standalone C6 still
+works with Cloud unavailable.
+
 Do not approve a release based only on compilation or happy-path tests.
