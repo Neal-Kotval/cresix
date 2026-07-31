@@ -1,55 +1,123 @@
 # C6 architecture
 
-## One-server topology
+## Local-first topology
 
 ```text
-browser / git client
+browser / Git client
         │
         ▼
-┌──────────────────────── C6 control plane ────────────────────────┐
-│ account + ACL │ Git authorization │ project API │ web gateway   │
-│ pull requests │ deploy intent     │ scheduler   │ audit events  │
-└──────────┬───────────────────────────────┬───────────────────────┘
-           │ PostgreSQL                    │ signed Unix-socket work
-           ▼                               ▼
-    control database                 C6 runner daemon
-                                     │
-                             rootless project containers
-                              │       │        │
-                         workload  object    OCI image
-                         Postgres   storage   registry
+┌────────────────────── C6 control plane ──────────────────────┐
+│ peer sessions │ authorization │ project API │ Git read API  │
+│ pull requests │ runtime records │ schedules │ audit events  │
+└─────────┬────────────────────────────────────────────────────┘
+          ▼
+  SQLite + bare Git               C6 runner process
+  under C6_DATA_DIR               authenticated Unix socket
+                                  simulation journal only
+                                  (not wired to control plane)
 ```
 
-The control plane is unprivileged. It records intent and authorization. Only the
-runner daemon will be allowed to create execution sandboxes, and requests to it
-must be authenticated, narrowly typed, revision-pinned, and auditable.
+One C6 installation is authoritative for its peers, projects, and execution
+records. It is remote-first—peers may connect from anywhere through an
+operator-provided HTTPS gateway—but it does not require a central C6 service.
+The gateway terminates TLS; C6's loopback/private backend listener remains HTTP.
+
+The MVP deliberately uses an embedded SQLite control store and on-disk bare Git
+repositories. A single local data directory makes a laptop install portable and
+recoverable. PostgreSQL, object storage, a private registry, remote runners,
+and multiple control-plane replicas are deferred until real use requires them.
+
+## Trust and authorization
+
+Native peer trust separates proof of possession from authorization:
+
+```text
+one-time bootstrap / invitation / cookie session
+                          │
+                          ▼
+                 authenticated peer
+                          │
+                          ▼
+              durable workspace/project role
+                          │
+                          ▼
+                 authorized operation
+```
+
+Bearer material is high entropy and stored only as a cryptographic hash. An IP
+address or reachable URL is never identity. Every protected operation derives
+its actor from server-side authentication, reads current membership, and
+records security-sensitive changes in the audit log.
+
+Native v1 has no cryptographic device identity or re-login proof. An invitation
+issues a 30-day cookie session; the submitted device label and `publicKey` are
+unverified metadata. The bootstrap identity is the immutable server
+administrator; workspace ownership does not grant that power. Losing or
+revoking its sole session permanently locks global administration in this MVP.
+Successful session reads slide expiry forward by 30 days, but there is no
+lost-cookie recovery. This limitation is explicit rather than hidden behind an
+IP address or a pretend device-key flow.
+
+## Process boundary
+
+The control plane records authenticated intent. It does not receive the Docker
+socket or an ambient capability to execute arbitrary host commands. The runner
+protocol accepts size-limited, versioned, authenticated requests over a
+permission-restricted Unix socket, but the current control plane does not
+dispatch requests to it.
+
+The runner validates request identity and replay protection, writes execution
+state to its private state directory, and reports explicit lifecycle events. An
+unknown outcome becomes `interrupted`; C6 never retries it automatically. The
+current backend simulates bounded execution and never invokes a host command or
+container runtime.
+
+Containers are an accident boundary for trusted team code, not a sufficient
+boundary for mutually hostile tenants. Public multi-tenant hosting requires a
+stronger sandbox such as microVMs.
 
 ## Stable concepts
 
-- **Workspace:** membership and billing/operations boundary.
-- **Project:** Git repository plus collaboration, hosting, data, and access.
-- **Revision:** immutable Git commit.
-- **Pull request:** proposed branch merge with an isolated preview.
+- **Workspace:** local membership and policy boundary.
+- **Peer:** installation-local person with one or more revocable credentials.
+- **Server administrator:** immutable bootstrap identity that manages trust;
+  distinct from a workspace `owner`.
+- **Project:** local Git repository plus collaboration and declared runtime metadata.
+- **Revision:** immutable, full Git object ID.
+- **Pull request:** proposed branch update pinned to reviewed revisions.
 - **Deployment:** immutable revision and image promoted to an environment.
 - **Job:** named command, cron task, or agent declared by `c6.toml`.
 - **Run:** one revision-pinned execution and its terminal outcome.
-- **Secret:** write-only workspace value granted by name to selected workloads.
-- **Runner:** execution host enrolled with the control plane.
+- **Secret:** write-only value granted by name to selected workloads; value
+  storage is deferred until encryption and runner injection are implemented.
+- **Runner:** the locally authenticated execution process.
 
-## Persistence boundaries
+## Persistence and consistency
 
-Control-plane PostgreSQL and project PostgreSQL are separate services and use
-unrelated credentials. Compromise of a project database credential must not
-provide a route into identity, authorization, or secret metadata.
+The default data root is selected through `C6_DATA_DIR`. SQLite metadata, Git
+repositories, and server-owned run data live beneath it. Runner journaling uses
+a distinct private state directory. Paths are derived from server-created UUIDs
+rather than user-supplied slugs.
 
-Git repositories live as bare repositories on a dedicated volume. Object data,
-run artifacts, and OCI images live outside Git. A fork copies repository history
-but does not copy data-plane resources or secret values.
+SQLite runs in WAL mode with foreign keys and a bounded busy timeout. Mutations
+that change authorization or multiple records are transactional, and audit
+failure aborts the associated security-sensitive mutation. Git remains the
+authority for refs, commits, trees, and blobs; C6 does not duplicate them into
+SQLite.
+
+Operations that cross SQLite and Git must compensate safely. A repository
+created before a failed metadata transaction may remove only that newly created
+UUID directory. Ref updates use expected old object IDs so concurrent movement
+fails rather than merging or publishing an unreviewed revision.
 
 ## Agent writes
 
 An agent receives an ephemeral checkout of a pinned revision. With no repository
-grant, its writes remain run artifacts. With `repository_write = "proposal"`,
-the runner may create `agent/<job>/<run>` and open a pull request under a service
-identity. Direct writes to the default branch are never an agent capability.
+grant, its writes remain run artifacts. A future
+`repository_write = "proposal"` grant may create an `agent/<job>/<run>` branch
+and pull request under a service identity. Direct writes to a protected/default
+branch are never an agent capability.
 
+Agent execution remains disabled until C6 can encrypt credentials, grant them
+per job, restrict egress, redact logs, and prevent use of the server owner's
+ambient Codex credentials.

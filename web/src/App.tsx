@@ -1,276 +1,242 @@
 import {
-  ArrowUpRight,
-  BookOpen,
-  Box,
-  Braces,
-  Check,
-  ChevronDown,
-  Clock3,
-  Cloud,
-  Code2,
-  Copy,
-  Database,
-  GitBranch,
-  GitFork,
-  GitPullRequest,
-  Globe2,
-  History,
-  MoreHorizontal,
-  Play,
-  Rocket,
-  Search,
-  Server,
-  Share2,
-  Sparkles,
-  Users,
+  Activity, ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, Box, Braces, Check, ChevronDown, ChevronRight,
+  CircleAlert, Clock3, Cloud, Code2, Copy, Database, Eye, File, FileCode2, Folder, GitBranch, GitCommit,
+  GitFork, GitPullRequest, Globe2, HardDrive, History, KeyRound, Laptop, Link2, ListTodo, LockKeyhole,
+  Menu, MoreHorizontal, Network, PackagePlus, Play, Plus, Rocket, RotateCcw, Search, Server, Settings,
+  ShieldCheck, Sparkles, TerminalSquare, Trash2, UserCheck, UserPlus, Users, X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
-import type { ProjectDetail, Run } from "./types";
-
-type Tab = "overview" | "files" | "pulls" | "runs" | "settings";
+import { fixtureBranches, fixtureInvites, fixtureJobs, fixturePeers, fixtureProject, fixtureProjects, fixtureSecrets, fixtureSession, runLog } from "./fixtures";
+import type { Invite, Job, Peer, ProjectDetail, ProjectSummary, Role, Run, Session, Workspace } from "./types";
 
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+const navItems = [["overview", BookOpen, "Overview"], ["files", Code2, "Files"], ["branches", GitBranch, "Branches"], ["commits", GitCommit, "Commits"], ["pulls", GitPullRequest, "Pull requests"], ["deployments", Rocket, "Deployments"], ["jobs", Clock3, "Jobs"], ["runs", Play, "Runs"], ["secrets", KeyRound, "Secrets"], ["settings", Settings, "Settings"]] as const;
 
-function relativeTime(value: string) {
+function relativeTime(value?: string) {
+  if (!value) return "never";
   const minutes = Math.round((new Date(value).getTime() - Date.now()) / 60_000);
   if (Math.abs(minutes) < 60) return relative.format(minutes, "minute");
   const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return relative.format(hours, "hour");
-  return relative.format(Math.round(hours / 24), "day");
+  return Math.abs(hours) < 24 ? relative.format(hours, "hour") : relative.format(Math.round(hours / 24), "day");
+}
+const shortSha = (sha?: string) => sha ? sha.slice(0, 7) : "—";
+const titleCase = (value: string) => value.replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+function useRoute() {
+  const [path, setPath] = useState(window.location.pathname);
+  useEffect(() => {
+    const update = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", update);
+    return () => window.removeEventListener("popstate", update);
+  }, []);
+  function go(next: string) { if (next !== path) { history.pushState({}, "", next); setPath(next); window.scrollTo({ top: 0 }); } }
+  return { path, go };
 }
 
-function shortSha(sha: string) {
-  return sha.slice(0, 7);
+function NavLink({ to, go, children, className = "" }: { to: string; go: (to: string) => void; children: ReactNode; className?: string }) {
+  return <a className={className} href={to} onClick={(event) => { if (!event.metaKey && !event.ctrlKey) { event.preventDefault(); go(to); } }}>{children}</a>;
 }
 
 export function App() {
-  const [project, setProject] = useState<ProjectDetail>();
-  const [tab, setTab] = useState<Tab>("overview");
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState<string>();
+  const { path, go } = useRoute();
+  const [session, setSession] = useState<Session>(fixtureSession);
+  const [projects, setProjects] = useState<ProjectSummary[]>(fixtureProjects);
+  const [project, setProject] = useState<ProjectDetail>(fixtureProject);
+  const [preview, setPreview] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [fatal, setFatal] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [mobileNav, setMobileNav] = useState(false);
+
+  const parts = path.split("/").filter(Boolean);
+  const projectIndex = parts.indexOf("projects");
+  const slug = projectIndex >= 0 ? parts[projectIndex + 1] : undefined;
+  const section = projectIndex >= 0 ? parts.slice(projectIndex + 2).join("/") || "overview" : undefined;
 
   useEffect(() => {
-    api.project("weeknote").then(setProject).catch((caught: Error) => setError(caught.message));
+    let active = true;
+    api.bootstrap().then((value) => { if (!active) return; if (value.state === "unclaimed") { go("/claim"); return; } if (value.state === "unauthorized") { go("/join"); return; } setSession(value.session); setProjects(value.projects); setPreview(Boolean(value.preview)); }).catch((error: Error) => active && setFatal(error.message)).finally(() => active && setLoading(false));
+    return () => { active = false; };
   }, []);
+  useEffect(() => {
+    if (!slug) return;
+    let active = true;
+    api.project(slug).then((value) => { if (active) { setProject(value.data); setPreview((current) => current || value.preview); } }).catch((error: Error) => active && setFatal(error.message));
+    return () => { active = false; };
+  }, [slug]);
 
-  const production = useMemo(
-    () => project?.deployments.find((deployment) => deployment.environment === "production"),
-    [project],
-  );
+  if (path === "/claim") return <ClaimServer go={go} />;
+  if (path === "/join") return <JoinServer go={go} />;
 
-  async function run(job: string, kind: Run["kind"]) {
-    if (!project) return;
-    setBusy(job);
-    try {
-      const created = await api.run(project.slug, job, kind);
-      setProject({ ...project, runs: [created, ...project.runs] });
-      setNotice(`${job} is queued.`);
-    } catch (caught) {
-      setNotice(caught instanceof Error ? caught.message : "The job could not be queued.");
-    } finally {
-      setBusy(undefined);
-    }
-  }
-
-  async function publish() {
-    if (!project) return;
-    setBusy("publish");
-    try {
-      await api.publish(project.slug);
-      setNotice(`Publishing ${shortSha(project.headSha)}.`);
-    } catch (caught) {
-      setNotice(caught instanceof Error ? caught.message : "The revision could not be published.");
-    } finally {
-      setBusy(undefined);
-    }
-  }
-
-  if (error) {
-    return <div className="center-state"><strong>C6 is not reachable.</strong><span>{error}</span><code>cargo run -p c6-server</code></div>;
-  }
-  if (!project) {
-    return <div className="center-state"><span className="loader" />Loading your small software…</div>;
-  }
-
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#" aria-label="C6 home">
-          <span className="brand-mark"><Cloud size={18} strokeWidth={2.4} /></span>
-          <span>C6</span>
-        </a>
-        <div className="global-search">
-          <Search size={15} />
-          <span>Find small software</span>
-          <kbd>⌘ K</kbd>
-        </div>
-        <div className="top-actions">
-          <span className="server-state"><span /> Laptop server</span>
-          <button className="icon-button" aria-label="More options"><MoreHorizontal size={18} /></button>
-          <button className="avatar" aria-label="Account menu">NK</button>
-        </div>
-      </header>
-
-      <main>
-        <section className="project-head">
-          <div className="crumbs">
-            <button>Paper Street</button><span>/</span><strong>{project.name}</strong>
-          </div>
-          <div className="project-title-row">
-            <div>
-              <div className="title-lockup">
-                <span className="project-icon"><Braces size={24} /></span>
-                <h1>{project.name}</h1>
-                <span className="private-chip">Private</span>
-              </div>
-              <p>{project.description}</p>
-            </div>
-            <div className="project-actions">
-              <button className="button secondary"><Share2 size={16} />Share</button>
-              <button className="button secondary"><GitFork size={16} />Fork</button>
-              <a className="button primary" href={project.appUrl} target="_blank" rel="noreferrer">
-                Open app<ArrowUpRight size={16} />
-              </a>
-            </div>
-          </div>
-          <nav className="tabs" aria-label="Project sections">
-            {([
-              ["overview", BookOpen, "Overview"],
-              ["files", Code2, "Files"],
-              ["pulls", GitPullRequest, "Pull requests"],
-              ["runs", Play, "Runs"],
-              ["settings", Server, "Settings"],
-            ] as const).map(([value, Icon, label]) => (
-              <button key={value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>
-                <Icon size={16} />{label}
-                {value === "pulls" && <span className="count">{project.pullRequests.length}</span>}
-              </button>
-            ))}
-          </nav>
-        </section>
-
-        {notice && <button className="notice" onClick={() => setNotice(undefined)}>{notice}<span>Dismiss</span></button>}
-
-        <section className="content-grid">
-          <div className="main-column">
-            <div className="software-spine" aria-label="Software lifecycle">
-              <LifecycleStep icon={Code2} label="Source" value={project.defaultBranch} detail={shortSha(project.headSha)} tone="ink" />
-              <LifecycleStep icon={GitPullRequest} label="Review" value={`${project.pullRequests.length} open`} detail="preview ready" tone="blue" />
-              <LifecycleStep icon={Rocket} label="Published" value={shortSha(project.publishedSha ?? "—")} detail="1 day ago" tone="green" />
-              <LifecycleStep icon={Clock3} label="Next run" value="Fri 16:00" detail="friday-notes" tone="orange" last />
-            </div>
-
-            {tab === "overview" && (
-              <>
-                <section className="panel readme-panel">
-                  <div className="panel-heading">
-                    <span><BookOpen size={16} />README.md</span>
-                    <button className="text-button">Edit</button>
-                  </div>
-                  <div className="readme-content">
-                    <h2>Weeknote</h2>
-                    <p>A small private app for making the weekly update less painful. It gathers activity, proposes a summary, and lets the team edit before sharing.</p>
-                    <h3>What runs</h3>
-                    <ul>
-                      <li><code>web</code> serves the shared editor</li>
-                      <li><code>sync-activity</code> refreshes source data hourly</li>
-                      <li><code>friday-notes</code> uses Codex to propose the weekly summary and opens a pull request</li>
-                    </ul>
-                  </div>
-                </section>
-
-                <section className="panel">
-                  <div className="panel-heading">
-                    <span><History size={16} />Recent revisions</span>
-                    <button className="text-button">View all</button>
-                  </div>
-                  <div className="list">
-                    {project.revisions.map((revision) => (
-                      <div className="revision-row" key={revision.sha}>
-                        <span className="commit-node" />
-                        <div><strong>{revision.message}</strong><small>{revision.author.handle} · {relativeTime(revision.createdAt)}</small></div>
-                        <code>{shortSha(revision.sha)}</code>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              </>
-            )}
-
-            {tab === "pulls" && <Pulls project={project} />}
-            {tab === "runs" && <Runs project={project} onRun={run} busy={busy} />}
-            {tab === "files" && <Files />}
-            {tab === "settings" && <Settings />}
-          </div>
-
-          <aside className="side-column">
-            <section className="side-section deploy-card">
-              <div className="side-heading"><span>Production</span><span className="healthy"><Check size={12} />Live</span></div>
-              <div className="deploy-visual"><Globe2 size={23} /><span /><Rocket size={19} /></div>
-              <a href={production?.url} target="_blank" rel="noreferrer">weeknote.c6.local<ArrowUpRight size={14} /></a>
-              <dl>
-                <div><dt>Revision</dt><dd><code>{shortSha(production?.revisionSha ?? "—")}</code></dd></div>
-                <div><dt>Published</dt><dd>1 day ago</dd></div>
-                <div><dt>Access</dt><dd>6 people</dd></div>
-              </dl>
-              {project.headSha !== project.publishedSha && (
-                <button className="button publish" onClick={publish} disabled={busy === "publish"}>
-                  <Rocket size={15} />{busy === "publish" ? "Publishing…" : `Publish ${shortSha(project.headSha)}`}
-                </button>
-              )}
-            </section>
-
-            <section className="side-section">
-              <div className="side-heading"><span>Software</span><button><MoreHorizontal size={16} /></button></div>
-              <div className="resource-list">
-                <Resource icon={Box} name="web" detail="Web · healthy" state="live" />
-                <Resource icon={Clock3} name="sync-activity" detail="Every hour" />
-                <Resource icon={Sparkles} name="friday-notes" detail="Agent · Fridays" state="agent" />
-                <Resource icon={Database} name="postgres" detail="18 MB" />
-              </div>
-            </section>
-
-            <section className="side-section share-card">
-              <div className="side-heading"><span>People</span><Users size={15} /></div>
-              <div className="people"><span>NK</span><span>AM</span><span>JP</span><span>+3</span></div>
-              <p>Only invited people can use or inspect this software.</p>
-              <button className="button secondary wide"><Share2 size={15} />Manage access</button>
-            </section>
-
-            <section className="clone-box">
-              <label>Clone this software</label>
-              <div><code>git@laptop:paper-street/weeknote.git</code><button aria-label="Copy clone URL"><Copy size={14} /></button></div>
-            </section>
-          </aside>
-        </section>
+  if (fatal) return <StatusPage icon={CircleAlert} title="C6 is not reachable" body={fatal} action={<button className="button secondary" onClick={() => location.reload()}>Try again</button>} />;
+  return <div className="app-shell">
+    <Topbar session={session} preview={preview} go={go} onMenu={() => setMobileNav((value) => !value)} />
+    {notice && <Toast message={notice} onClose={() => setNotice(undefined)} />}
+    <div className="shell-body">
+      <Sidebar go={go} path={path} projects={projects} workspace={session.workspaces[0]} open={mobileNav} onClose={() => setMobileNav(false)} />
+      <main className="page">
+        {loading && <div className="loading-bar" aria-label="Loading C6" />}
+        {!loading && session.workspaces.length === 0 ? <CreateWorkspace />
+          : slug ? <ProjectPage project={project} workspaceName={session.workspaces[0]?.name} section={section ?? "overview"} go={go} setProject={setProject} notify={setNotice} preview={preview} />
+          : path === "/new" || path === "/import" ? <CreateProject mode={path === "/import" ? "import" : "create"} go={go} workspace={session.workspaces[0]} />
+          : path.startsWith("/settings/peers") ? <PeerTrust go={go} notify={setNotice} workspaceId={session.workspaces[0]?.id} currentUserId={session.user.id} preview={preview} />
+          : path === "/settings/server" ? <ServerSettings />
+          : <Dashboard session={session} projects={projects} go={go} />}
       </main>
     </div>
-  );
+  </div>;
 }
 
-function LifecycleStep({ icon: Icon, label, value, detail, tone, last }: { icon: typeof Code2; label: string; value: string; detail: string; tone: string; last?: boolean }) {
-  return <div className={`life-step ${tone}`}><span className="life-icon"><Icon size={17} /></span><div><small>{label}</small><strong>{value}</strong><em>{detail}</em></div>{!last && <span className="life-line" />}</div>;
+function CreateWorkspace() {
+  const [name, setName] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false); const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  async function create(event: FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { await api.createWorkspace({ name, slug }); location.assign("/"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Workspace could not be created."); } finally { setBusy(false); } }
+  return <div className="flow-page"><div className="flow-heading"><span className="flow-icon"><Users size={24} /></span><p>First workspace</p><h1>Name your C6 workspace</h1><span>A workspace is the local boundary for projects and member roles on this server.</span></div><form className="create-form" onSubmit={create}><label>Workspace name<input autoFocus required aria-label="Workspace name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Paper Street" /><small>Local identifier: <code>{slug || "paper-street"}</code></small></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="form-actions"><button className="button primary" disabled={!slug || busy}>{busy ? "Creating…" : "Create workspace"}<ArrowRight size={14} /></button></div></form></div>;
 }
 
-function Resource({ icon: Icon, name, detail, state }: { icon: typeof Box; name: string; detail: string; state?: string }) {
-  return <div className="resource"><span className={`resource-icon ${state ?? ""}`}><Icon size={16} /></span><div><strong>{name}</strong><small>{detail}</small></div><ChevronDown size={14} /></div>;
+function Topbar({ session, preview, go, onMenu }: { session: Session; preview: boolean; go: (to: string) => void; onMenu: () => void }) {
+  return <header className="topbar">
+    <button className="mobile-menu" onClick={onMenu} aria-label="Open navigation"><Menu size={20} /></button>
+    <NavLink className="brand" to="/" go={go}><span className="brand-mark"><Cloud size={18} strokeWidth={2.4} /></span><span>C6</span></NavLink>
+    <button className="global-search" onClick={() => document.getElementById("project-filter")?.focus()}><Search size={15} /><span>Find small software</span><kbd>⌘ K</kbd></button>
+    <div className="top-actions"><span className="server-state"><span /> Laptop server</span>{preview && <span className="preview-flag">preview data</span>}<button className="avatar" aria-label={`${session.user.displayName} menu`}>{session.user.displayName.split(" ").map((part) => part[0]).join("").slice(0, 2)}</button></div>
+  </header>;
 }
 
-function Pulls({ project }: { project: ProjectDetail }) {
-  return <section className="panel"><div className="panel-heading"><span><GitPullRequest size={16} />Pull requests</span><button className="button compact">New pull request</button></div><div className="list">{project.pullRequests.map((pull) => <div className="pull-row" key={pull.number}><span className="pull-icon"><GitPullRequest size={17} /></span><div><strong>{pull.title}</strong><small>#{pull.number} by {pull.author.displayName} · {pull.sourceBranch} → {pull.targetBranch}</small></div><a href={pull.preview?.url} target="_blank" rel="noreferrer">Preview<ArrowUpRight size={13} /></a></div>)}</div></section>;
+function Sidebar({ go, path, projects, workspace, open, onClose }: { go: (to: string) => void; path: string; projects: ProjectSummary[]; workspace?: Workspace; open: boolean; onClose: () => void }) {
+  const initials = (workspace?.name ?? "Workspace").split(" ").map((part) => part[0]).join("").slice(0, 2);
+  return <><button className={`nav-scrim ${open ? "open" : ""}`} aria-label="Close navigation" onClick={onClose} /><aside className={`sidebar ${open ? "open" : ""}`} onClick={(event) => { if ((event.target as HTMLElement).closest("a")) onClose(); }}>
+    <div className="workspace-switch"><span className="workspace-avatar">{initials}</span><div><strong>{workspace?.name ?? "Workspace"}</strong><small>{workspace ? titleCase(workspace.role) : "Local session"} · laptop</small></div><ChevronDown size={14} /></div>
+    <nav aria-label="Workspace"><NavLink to="/" go={go} className={path === "/" ? "active" : ""}><Box size={16} />Projects</NavLink><NavLink to="/settings/peers" go={go} className={path.startsWith("/settings/peers") ? "active" : ""}><Users size={16} />Trusted peers</NavLink><NavLink to="/settings/server" go={go} className={path === "/settings/server" ? "active" : ""}><Server size={16} />Server</NavLink></nav>
+    <div className="sidebar-label"><span>Recent software</span><NavLink to="/new" go={go} className="mini-icon" ><Plus size={14} /></NavLink></div>
+    <nav className="recent-projects" aria-label="Recent projects">{projects.slice(0, 4).map((item) => <NavLink key={item.id} to={`/projects/${item.slug}`} go={go} className={path.includes(`/projects/${item.slug}`) ? "active" : ""}><Braces size={15} /><span>{item.name}</span>{item.publishedSha && <i />}</NavLink>)}</nav>
+    <div className="sidebar-foot"><ShieldCheck size={15} /><span>Local trust authority</span></div>
+  </aside></>;
 }
 
-function Runs({ project, onRun, busy }: { project: ProjectDetail; onRun: (job: string, kind: Run["kind"]) => void; busy?: string }) {
-  return <><section className="run-actions"><div><Sparkles size={18} /><span><strong>friday-notes</strong><small>Codex agent · proposes changes through a pull request</small></span></div><button className="button primary" onClick={() => onRun("friday-notes", "agent")} disabled={busy === "friday-notes"}><Play size={14} />{busy === "friday-notes" ? "Queuing…" : "Run now"}</button></section><section className="panel"><div className="panel-heading"><span><History size={16} />Run history</span></div><div className="list">{project.runs.map((run) => <div className="run-row" key={run.id}><span className={`run-dot ${run.status}`} /><div><strong>{run.job}</strong><small>{run.trigger}</small></div><span className="kind-chip">{run.kind}</span><code>{shortSha(run.revisionSha)}</code><time>{relativeTime(run.startedAt)}</time></div>)}</div></section></>;
+function Dashboard({ session, projects, go }: { session: Session; projects: ProjectSummary[]; go: (to: string) => void }) {
+  const [query, setQuery] = useState("");
+  const shown = projects.filter((project) => `${project.name} ${project.description}`.toLowerCase().includes(query.toLowerCase()));
+  return <div className="page-pad dashboard">
+    <header className="page-title"><div><p className="kicker">{session.workspaces[0]?.name ?? "Your workspace"}</p><h1>Your small software</h1><p>Build, share, and keep the useful things running.</p></div><div className="actions"><NavLink className="button secondary" to="/import" go={go}><GitFork size={15} />Import Git repository</NavLink><NavLink className="button primary" to="/new" go={go}><Plus size={16} />New project</NavLink></div></header>
+    <section className="server-strip"><div className="server-illustration"><Laptop size={25} /><span /><Server size={19} /></div><div><strong>This process is serving the C6 interface</strong><p>Remote networking, DNS, and TLS remain operator-managed.</p></div><NavLink to="/settings/server" go={go}>Server details<ArrowRight size={14} /></NavLink></section>
+    <div className="list-toolbar"><div className="filter"><Search size={15} /><input id="project-filter" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter projects" aria-label="Filter projects" /></div><span>{shown.length} projects</span></div>
+    {shown.length ? <section className="project-list">{shown.map((item) => <article key={item.id} className="project-row"><NavLink className="project-main" to={`/projects/${item.slug}`} go={go}><span className="project-glyph"><Braces size={20} /></span><div><h2>{item.name}</h2><p>{item.description}</p><small><GitBranch size={12} />{item.defaultBranch} · <code>{shortSha(item.headSha)}</code> · updated {relativeTime(item.updatedAt)}</small></div></NavLink><div className="project-state"><span className="status neutral"><i />Repository ready</span></div></article>)}</section>
+      : <EmptyState icon={Search} title="No projects match" body="Try another name or clear the filter." action={<button className="button secondary" onClick={() => setQuery("")}>Clear filter</button>} />}
+  </div>;
 }
 
-function Files() {
-  const files = [["src", "folder"], ["agents", "folder"], ["c6.toml", "file"], ["README.md", "file"], ["Cargo.toml", "file"]];
-  return <section className="panel"><div className="panel-heading"><span><GitBranch size={16} />main</span><button className="button compact">Add file</button></div><div className="file-list">{files.map(([name, kind]) => <div key={name}><span>{kind === "folder" ? "↳" : "·"}</span><strong>{name}</strong><small>{kind === "folder" ? "Browse folder" : "Updated in 7c1a840"}</small></div>)}</div></section>;
+function ProjectPage({ project, workspaceName, section, go, setProject, notify, preview }: { project: ProjectDetail; workspaceName?: string; section: string; go: (to: string) => void; setProject: (project: ProjectDetail) => void; notify: (message: string) => void; preview: boolean }) {
+  const base = `/projects/${project.slug}`;
+  return <>
+    <header className="project-head"><div className="crumbs"><NavLink to="/" go={go}>{workspaceName ?? "Workspace"}</NavLink><span>/</span><strong>{project.name}</strong></div><div className="project-title-row"><div><div className="title-lockup"><span className="project-icon"><Braces size={24} /></span><h1>{project.name}</h1><span className="private-chip">Workspace</span></div><p>{project.description}</p></div><div className="actions"><NavLink className="button secondary" to="/settings/peers" go={go}><Users size={15} />Members</NavLink><button className="button secondary" disabled title="Forking is not implemented"><GitFork size={15} />Fork planned</button></div></div>
+      <nav className="project-tabs" aria-label="Project sections">{navItems.map(([value, Icon, label]) => <NavLink key={value} to={value === "overview" ? base : `${base}/${value}`} go={go} className={section === value ? "active" : ""}><Icon size={15} />{label}{value === "pulls" && <span className="count">{project.pullRequests.length}</span>}</NavLink>)}</nav>
+    </header>
+    <div className="project-content">{preview && <div className="demo-banner"><Eye size={16} /><div><strong>Demonstration workspace</strong><span>This sample shows planned C6 workflows. Hosting and execution actions do not run software.</span></div></div>}<ProjectSection section={section} project={project} go={go} setProject={setProject} notify={notify} /></div>
+  </>;
 }
 
-function Settings() {
-  return <section className="panel settings-panel"><div className="panel-heading"><span><Server size={16} />Project settings</span></div><div className="setting"><div><strong>Built-in access gate</strong><p>Only invited C6 accounts can open the app.</p></div><button className="toggle" aria-label="Toggle access gate"><span /></button></div><div className="setting"><div><strong>Default branch</strong><p>Pull requests merge into this branch.</p></div><code>main</code></div><div className="setting"><div><strong>Agent repository writes</strong><p>Agents may only propose changes through branches and pull requests.</p></div><span className="policy-chip">Proposal only</span></div></section>;
+function ProjectSection({ section, project, go, setProject, notify }: { section: string; project: ProjectDetail; go: (to: string) => void; setProject: (project: ProjectDetail) => void; notify: (message: string) => void }) {
+  if (section === "files") return <Files project={project} />;
+  if (section === "branches") return <Branches project={project} />;
+  if (section === "commits") return <Commits project={project} />;
+  if (section === "pulls") return <Pulls project={project} />;
+  if (section === "deployments") return <Deployments project={project} notify={notify} />;
+  if (section === "jobs") return <Jobs notify={notify} />;
+  if (section === "runs" || section.startsWith("runs/")) return <Runs project={project} go={go} setProject={setProject} selected={section.split("/")[1]} notify={notify} />;
+  if (section === "secrets") return <Secrets notify={notify} />;
+  if (section === "settings") return <ProjectSettings project={project} />;
+  return <Overview project={project} go={go} notify={notify} />;
 }
+
+function Overview({ project, go, notify }: { project: ProjectDetail; go: (to: string) => void; notify: (message: string) => void }) {
+  const production = project.deployments.find((item) => item.environment === "production" && item.status === "ready");
+  return <><FixtureNotice label="README, resource, and lifecycle content below is an illustrative layout, not live server data." /><div className="content-grid"><div className="main-column">
+    <div className="software-spine" aria-label="Project metadata lifecycle"><Life icon={Code2} label="Source" value={project.defaultBranch} detail={shortSha(project.headSha)} /><Life icon={GitPullRequest} label="Review records" value={`${project.pullRequests.length} open`} detail="local metadata" tone="blue" /><Life icon={Rocket} label="Deploy records" value={`${project.deployments.length}`} detail="no hosting" tone="green" /><Life icon={Clock3} label="Run records" value={`${project.runs.length}`} detail="safe simulation" tone="orange" /></div>
+    <section className="panel readme"><PanelHead icon={BookOpen} title="README.md" action="Edit" /><div><h2>Weeknote</h2><p>A small private app for making the weekly update less painful. It gathers activity, proposes a summary, and lets the team edit before sharing.</p><h3>What runs</h3><ul><li><code>web</code> serves the shared editor</li><li><code>sync-activity</code> refreshes source data hourly</li><li><code>friday-notes</code> uses Codex to propose the weekly summary</li></ul></div></section>
+    <section className="panel"><PanelHead icon={History} title="Recent commits" action="View all" onAction={() => go(`/projects/${project.slug}/commits`)} /><RevisionList revisions={project.revisions.slice(0, 3)} /></section>
+  </div><aside className="side-column"><section className="side-section"><div className="side-heading"><span>Deployment metadata</span><span className="status neutral">No hosting</span></div><div className="deploy-visual"><FileCode2 size={24} /><span /><ListTodo size={19} /></div><dl className="facts"><div><dt>Revision</dt><dd><code>{shortSha(production?.revisionSha)}</code></dd></div><div><dt>Recorded</dt><dd>{relativeTime(production?.createdAt)}</dd></div><div><dt>Execution</dt><dd>Unavailable</dd></div></dl><button className="button secondary wide" disabled><Rocket size={14} />Hosting planned</button></section>
+    <section className="side-section"><div className="side-heading"><span>Software</span><MoreHorizontal size={15} /></div><Resource icon={Box} name="web" detail="Web · healthy" tone="green" /><Resource icon={Clock3} name="sync-activity" detail="Every hour" /><Resource icon={Sparkles} name="friday-notes" detail="Agent · Fridays" tone="orange" /><Resource icon={Database} name="postgres" detail="18 MB" /></section>
+    <section className="side-section"><div className="side-heading"><span>Git network clone</span><span className="status neutral">Planned</span></div><div className="clone"><span>Repository browsing is local-only in this release.</span></div></section></aside></div></>;
+}
+
+function Files({ project }: { project: ProjectDetail }) {
+  const files = [["src", "Core application", "folder"], ["agents", "Agent configurations", "folder"], ["prompts", "Agent prompts", "folder"], ["c6.toml", "Define services and jobs", "code"], ["README.md", "Document the project", "file"], ["Cargo.lock", "Lock dependencies", "file"]];
+  return <section className="panel"><FixtureNotice label="Illustrative file list; current repository tree wiring is pending." /><div className="file-toolbar"><button className="branch-select"><GitBranch size={14} />{project.defaultBranch}<ChevronDown size={13} /></button><span><GitCommit size={14} />{project.revisions[0]?.message} <code>{shortSha(project.headSha)}</code></span><button className="button compact" disabled><Plus size={13} />Editing planned</button></div><div className="file-list">{files.map(([name, detail, kind]) => <button disabled key={name}><span className="file-icon">{kind === "folder" ? <Folder size={16} /> : kind === "code" ? <FileCode2 size={16} /> : <File size={16} />}</span><strong>{name}</strong><small>{detail}</small><span>{relativeTime(project.updatedAt)}</span></button>)}</div></section>;
+}
+
+function Branches({ project }: { project: ProjectDetail }) { return <section className="panel"><FixtureNotice label="Illustrative branches; live branch adapter is pending." /><PanelHead icon={GitBranch} title="Branches" action="New branch" /><div className="data-list">{fixtureBranches.map((branch) => <div className="data-row" key={branch.name}><span className="round-icon"><GitBranch size={15} /></span><div><strong>{branch.name}</strong><small><code>{shortSha(branch.sha)}</code> · updated {relativeTime(branch.updatedAt)}</small></div>{branch.name === project.defaultBranch ? <span className="status neutral">Default</span> : <span className="comparison">{branch.ahead} ahead · {branch.behind} behind</span>}{branch.protected && <LockKeyhole size={14} aria-label="Protected" />}</div>)}</div></section>; }
+function Commits({ project }: { project: ProjectDetail }) { return <section className="panel"><PanelHead icon={GitCommit} title={`${project.defaultBranch} commit history`} /><RevisionList revisions={project.revisions} detailed /></section>; }
+function RevisionList({ revisions, detailed = false }: { revisions: ProjectDetail["revisions"]; detailed?: boolean }) { return <div className="revision-list">{revisions.map((revision) => <div className="revision-row" key={revision.sha}><span className="commit-node" /><div><strong>{revision.message}</strong><small>{revision.author.displayName} committed {relativeTime(revision.createdAt)}</small></div>{detailed && <span className="avatar mini">{revision.author.displayName[0]}</span>}<code>{shortSha(revision.sha)}</code><button aria-label={`View commit ${shortSha(revision.sha)}`}><ChevronRight size={15} /></button></div>)}</div>; }
+
+function Pulls({ project }: { project: ProjectDetail }) { return <section className="panel"><PanelHead icon={GitPullRequest} title="Pull requests" action="New pull request" /><div className="pull-filters"><button className="active"><GitPullRequest size={14} />{project.pullRequests.length} Open</button><button><Check size={14} />0 Closed</button></div>{project.pullRequests.length ? <div className="data-list">{project.pullRequests.map((pull) => <div className="data-row pull-row" key={pull.number}><span className="round-icon green"><GitPullRequest size={15} /></span><div><strong>{pull.title}</strong><small>#{pull.number} opened by {pull.author.displayName} · {pull.sourceBranch} → {pull.targetBranch}</small></div>{pull.preview && <a className="button secondary compact" href={pull.preview.url}><Eye size={13} />Preview</a>}</div>)}</div> : <EmptyState icon={GitPullRequest} title="No open pull requests" body="Propose a focused change and get a preview before it reaches production." />}</section>; }
+
+function Deployments({ project, notify }: { project: ProjectDetail; notify: (message: string) => void }) { return <div className="stack"><header className="section-title"><div><h2>Deployment records</h2><p>C6 currently records deployment intent. Workload building and hosting are not implemented.</p></div><button className="button secondary" disabled title="Runtime hosting is not available yet"><Rocket size={14} />Hosting unavailable</button></header><section className="panel deployment-list">{project.deployments.map((deployment) => <div className="deployment-row" key={deployment.id}><span className="round-icon"><Rocket size={15} /></span><div><strong>{titleCase(deployment.environment)} record · <code>{shortSha(deployment.revisionSha)}</code></strong><small>Created {relativeTime(deployment.createdAt)}</small></div><span className="status neutral">{titleCase(deployment.status)}</span><span /><button className="icon-only" aria-label="Deployment record options"><MoreHorizontal size={17} /></button></div>)}</section><section className="info-strip"><ListTodo size={17} /><div><strong>Metadata only in this release</strong><p>These records do not build images, expose applications, or modify databases.</p></div></section></div>; }
+
+function Jobs({ notify }: { notify: (message: string) => void }) {
+  const [jobs, setJobs] = useState(fixtureJobs);
+  const toggle = (job: Job) => setJobs(jobs.map((item) => item.id === job.id ? { ...item, enabled: !item.enabled } : item));
+  return <div className="stack"><FixtureNotice label="Illustrative job definitions; controls below do not persist." /><header className="section-title"><div><h2>Jobs & schedules</h2><p>Run commands and agents from the same revision you deploy.</p></div><button className="button secondary" disabled><Plus size={14} />Job editing planned</button></header><section className="panel job-list">{jobs.map((job) => <div className="job-row" key={job.id}><span className={`round-icon ${job.kind === "agent" ? "orange" : job.kind === "cron" ? "blue" : ""}`}>{job.kind === "agent" ? <Sparkles size={15} /> : job.kind === "cron" ? <Clock3 size={15} /> : <TerminalSquare size={15} />}</span><div><strong>{job.name}</strong><small><code>{job.command}</code></small></div><div className="job-schedule"><strong>{job.schedule ?? "Manual"}</strong><small>{job.timezone ?? "On demand"}{job.nextRunAt ? ` · ${relativeTime(job.nextRunAt)}` : ""}</small></div><button className={`switch ${job.enabled ? "on" : ""}`} aria-label={`${job.enabled ? "Disable" : "Enable"} ${job.name}`} aria-pressed={job.enabled} disabled onClick={() => toggle(job)}><span /></button><button className="button secondary compact" disabled><Play size={13} />Run</button></div>)}</section></div>;
+}
+
+function Runs({ project, go, setProject, selected, notify }: { project: ProjectDetail; go: (to: string) => void; setProject: (project: ProjectDetail) => void; selected?: string; notify: (message: string) => void }) {
+  const run = selected ? project.runs.find((item) => item.id === selected) : undefined;
+  const [busy, setBusy] = useState(false);
+  async function queue() { setBusy(true); try { const created = await api.run(project.id, "friday-notes", "agent", project.headSha); setProject({ ...project, runs: [{ ...created, trigger: "manual", startedAt: new Date().toISOString() }, ...project.runs] }); notify("Run intent recorded; no dispatcher executed project code."); } catch { notify("The server could not record this run intent."); } finally { setBusy(false); } }
+  if (run) return <div className="stack"><button className="back-link" onClick={() => go(`/projects/${project.slug}/runs`)}><ArrowLeft size={14} />All run intents</button><header className="run-detail-head"><span className={`run-mark ${run.status}`}><Check size={22} /></span><div><p>{run.job}</p><h2>Run intent {run.id.replace("run-", "#")}</h2><span>{titleCase(run.status)} · {run.trigger} · <code>{shortSha(run.revisionSha)}</code></span></div><button className="button secondary" disabled><RotateCcw size={14} />Replay unavailable</button></header>{run.status === "recorded" ? <section className="security-callout"><CircleAlert size={18} /><div><strong>No dispatcher or logs</strong><p>C6 recorded this intent as metadata. It did not execute code, open a network connection, or produce artifacts.</p></div></section> : <><FixtureNotice label="This simulation trace is illustrative fixture data, not output from project execution." /><section className="log-panel"><div><span><TerminalSquare size={14} />Illustrative trace</span></div><pre>{runLog}</pre></section></>}<section className="run-metadata"><div><strong>Mode</strong><span>Intent record</span></div><div><strong>Code execution</strong><span>None</span></div><div><strong>Network</strong><span>None</span></div><div><strong>Artifacts</strong><span>None</span></div></section></div>;
+  return <div className="stack"><header className="section-title"><div><h2>Run intent records</h2><p>Record requested work without dispatching or executing project code.</p></div><button className="button primary" onClick={queue} disabled={busy}><Play size={14} />{busy ? "Recording…" : "Record run intent"}</button></header><section className="panel run-list"><div className="table-head"><span>Status</span><span>Job</span><span>Trigger</span><span>Revision</span><span>Started</span></div>{project.runs.map((item) => <button className="run-row" key={item.id} onClick={() => go(`/projects/${project.slug}/runs/${item.id}`)}><span><i className={`run-dot ${item.status}`} />{titleCase(item.status)}</span><strong>{item.job}<small>{item.kind}</small></strong><span>{item.trigger}</span><code>{shortSha(item.revisionSha)}</code><time>{relativeTime(item.startedAt)}</time><ChevronRight size={15} /></button>)}</section></div>;
+}
+
+function Secrets({ notify }: { notify: (message: string) => void }) { return <div className="stack"><FixtureNotice label="Illustrative secret names; no values are stored." /><header className="section-title"><div><h2>Secret names</h2><p>C6 stores metadata names only. Secret values and runtime injection are deliberately unavailable.</p></div><button className="button secondary" disabled><Plus size={14} />Value storage unavailable</button></header><section className="security-callout"><CircleAlert size={18} /><div><strong>No secret values are accepted</strong><p>The value endpoint returns 501 until a reviewed vault design is implemented.</p></div></section><section className="panel secret-list">{fixtureSecrets.map((secret) => <div className="secret-row" key={secret.name}><span className="round-icon"><KeyRound size={15} /></span><div><strong><code>{secret.name}</code></strong><small>Demonstration metadata · no stored value</small></div><div className="grant-list">{secret.grants.map((grant) => <span key={grant}>{grant}</span>)}</div><button className="icon-only" aria-label={`Configure ${secret.name}`} disabled><MoreHorizontal size={17} /></button></div>)}</section></div>; }
+
+function ProjectSettings({ project }: { project: ProjectDetail }) { return <div className="settings-layout"><aside><a className="active" href="#general">General</a><a href="#runtime">Runtime roadmap</a><a href="#danger">Danger zone</a></aside><div className="stack"><section className="panel form-panel" id="general"><PanelHead icon={Settings} title="General" /><Field label="Project name" value={project.name} /><Field label="Description" value={project.description} /><Field label="Default branch" value={project.defaultBranch} /><div className="form-actions"><button className="button secondary" disabled>Editing not connected</button></div></section><section className="panel settings-panel" id="runtime"><PanelHead icon={ListTodo} title="Runtime roadmap" /><Setting title="Hosted application access" body="Not implemented in the current local metadata release." control={<span className="status neutral">Planned</span>} /><Setting title="Agent isolation and network policy" body="Run endpoints record intent; no dispatcher executes project code." control={<span className="status neutral">Planned</span>} /></section><section className="danger-panel" id="danger"><div><strong>Delete project</strong><p>Permanently remove source and local metadata.</p></div><button className="button danger" disabled><Trash2 size={14} />Deletion unavailable</button></section></div></div>; }
+
+function PeerTrust({ go, notify, workspaceId, currentUserId, preview }: { go: (to: string) => void; notify: (message: string) => void; workspaceId?: string; currentUserId: string; preview: boolean }) {
+  const [peers, setPeers] = useState(fixturePeers); const [invites, setInvites] = useState(fixtureInvites); const [showInvite, setShowInvite] = useState(false); const [role, setRole] = useState<Role>("contributor"); const [trustError, setTrustError] = useState("");
+  async function loadTrust(preserve?: Invite) { const [peerEnvelope, inviteEnvelope] = await Promise.all([api.peers(), api.invites()]); setPeers(peerEnvelope.peers.map((peer) => ({ id: peer.id, name: peer.displayName, handle: peer.displayName.toLowerCase().replace(/[^a-z0-9]+/g, "-"), role: "consumer", status: peer.revokedAt ? "revoked" : "active", lastSeenAt: undefined, devices: [] }))); const listed = inviteEnvelope.invites.map((invite) => ({ id: invite.id, code: "", role: invite.role as Role, expiresAt: invite.expiresAt, status: invite.redeemedAt ? "used" as const : "ready" as const })); setInvites(preserve ? [preserve, ...listed.filter((invite) => invite.id !== preserve.id)] : listed); }
+  useEffect(() => { if (!preview) { setPeers([]); setInvites([]); setTrustError(""); loadTrust().catch((error) => { const message = error instanceof Error ? error.message : "Trust records could not be loaded."; setTrustError(message); notify(message); }); } }, [preview]);
+  async function createInvite(event: FormEvent) { event.preventDefault(); try { const created = await api.createInvite({ role, expiresInMinutes: 1440, workspaceId }); const shareable: Invite = { id: created.id, code: created.inviteUrl, role, expiresAt: created.expiresAt, status: "ready" }; if (preview) setInvites([shareable, ...invites]); else await loadTrust(shareable); setShowInvite(false); notify("Invite created. It expires in 24 hours."); } catch (error) { notify(error instanceof Error ? error.message : "Invite could not be created."); } }
+  async function copyInvitation(invite: Invite) { if (!invite.code) return; try { if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable"); await navigator.clipboard.writeText(invite.code); notify("Invitation copied. Share it through a trusted channel."); } catch { notify("C6 could not copy this invitation. Create a new invite in a browser with clipboard access."); } }
+  return <div className="page-pad stack">{preview && <FixtureNotice label="Peer and device rows below are illustrative; invitations are the only connected control." />}<header className="page-title"><div><p className="kicker">Local trust</p><h1>Trusted peers</h1><p>Local membership, invitation, device, and session records for this server.</p></div><button className="button primary" onClick={() => setShowInvite(true)} disabled={Boolean(trustError)}><UserPlus size={15} />Invite peer</button></header>{trustError && <section className="security-callout" role="alert"><CircleAlert size={18} /><div><strong>Server administrator access required</strong><p>{trustError}</p></div></section>}<section className="trust-principle"><div className="trust-diagram"><span><Laptop size={19} /></span><i /><span><ShieldCheck size={19} /></span></div><div><strong>Owner-issued invitations and cookie sessions</strong><p>Strong public-key proof and remote connectivity are not implemented yet.</p></div><NavLink to="/settings/server" go={go}>Review server state<ArrowRight size={14} /></NavLink></section>
+    {peers.some((peer) => peer.status === "pending") && <section><div className="section-label"><span>Needs approval</span><span>{peers.filter((peer) => peer.status === "pending").length}</span></div>{peers.filter((peer) => peer.status === "pending").map((peer) => <article className="approval-row" key={peer.id}><span className="avatar peer-avatar">{peer.name.split(" ").map((part) => part[0]).join("")}</span><div><strong>{peer.name}</strong><p>Opened your invite · requesting <b>{peer.role}</b> access</p><small><CircleAlert size={12} />Confirm their identity out-of-band before approval.</small></div><button className="button secondary" disabled>Deny · preview</button><button className="button primary" disabled><UserCheck size={14} />Approve</button></article>)}</section>}
+    <section><div className="section-label"><span>People & sessions</span><span>{peers.filter((peer) => peer.status === "active").length}</span></div><div className="peer-list">{peers.filter((peer) => peer.status === "active").map((peer) => <details key={peer.id}><summary><span className="avatar peer-avatar">{peer.name.split(" ").map((part) => part[0]).join("")}</span><div><strong>{peer.name}{peer.id === currentUserId && <span>You</span>}</strong><small>{preview ? `@${peer.handle} · seen ${relativeTime(peer.lastSeenAt)}` : "Local peer record"}</small></div><span className="role-chip">{preview ? peer.role : "peer"}</span><span>{preview ? `${peer.devices.length} devices` : "Cookie session"}</span><ChevronDown size={15} /></summary>{preview && <div className="device-list">{peer.devices.map((device) => <div key={device.id}><span className="round-icon">{device.kind === "browser" ? <Globe2 size={14} /> : <Laptop size={14} />}</span><div><strong>{device.name}</strong><small>{device.fingerprint} · added {relativeTime(device.addedAt)}</small></div><span>Used {relativeTime(device.lastUsedAt)}</span><button className="icon-only" aria-label={`Unavailable device action for ${device.name}`} disabled><Trash2 size={14} /></button></div>)}<button className="text-button" disabled><Plus size={13} />Device enrollment planned</button></div>}</details>)}</div></section>
+    <section><div className="section-label"><span>Invitation records</span><span>{invites.length}</span></div><div className="invite-list">{invites.map((invite) => <div key={invite.id}><span className="round-icon blue"><Link2 size={14} /></span><div><strong>{invite.requestedBy ?? "Unused invitation"}</strong><small>{invite.role} · expires {relativeTime(invite.expiresAt)}</small></div><code>{invite.code ? "Single-use link ready" : "Token no longer available"}</code><button className="icon-only" aria-label="Copy invitation" disabled={!invite.code} onClick={() => copyInvitation(invite)}><Copy size={14} /></button><button className="icon-only" aria-label="Revoke invitation unavailable" disabled><X size={15} /></button></div>)}</div></section>
+    {showInvite && <div className="dialog-layer" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowInvite(false)}><form className="dialog" role="dialog" aria-modal="true" onSubmit={createInvite} aria-labelledby="invite-title"><button type="button" className="dialog-close" onClick={() => setShowInvite(false)} aria-label="Close"><X size={18} /></button><span className="dialog-icon"><UserPlus size={21} /></span><h2 id="invite-title">Invite a trusted peer</h2><p>Share the single-use link through a channel you already trust. It expires after 24 hours.</p><label>Starting role<select autoFocus value={role} onChange={(event) => setRole(event.target.value as Role)}><option value="reader">Reader</option><option value="runner">Runner</option><option value="contributor">Contributor</option><option value="maintainer">Maintainer</option></select></label><div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setShowInvite(false)}>Cancel</button><button className="button primary">Create invite</button></div></form></div>}
+  </div>;
+}
+
+function ServerSettings() { return <div className="page-pad stack"><FixtureNotice label="Counts below are illustrative; health and operator-boundary text reflect the current release." /><header className="page-title"><div><p className="kicker">C6 server</p><h1>Local server</h1><p>Observed state and deferred capabilities for this installation.</p></div><span className="status success large"><i />API healthy</span></header><section className="server-hero"><div className="server-machine"><Server size={34} /><span /></div><div><h2>This C6 process</h2><p>Local HTTP service · invitation-bound cookie sessions</p><div className="server-address"><Globe2 size={14} /><code>{location.origin}</code></div></div><dl><div><dt>Projects</dt><dd>3</dd></div><div><dt>Peers</dt><dd>2</dd></div><div><dt>Workloads</dt><dd>0</dd></div></dl></section><div className="metric-row"><article><HardDrive size={17} /><div><strong>Local metadata</strong><span>SQLite and repository storage</span></div></article><article><Activity size={17} /><div><strong>Safe simulation</strong><span>No arbitrary code execution</span></div></article><article><Network size={17} /><div><strong>Operator-managed network</strong><span>No C6 tunnel or TLS automation</span></div></article></div><section className="panel settings-panel"><PanelHead icon={Globe2} title="Connectivity" /><Setting title="Public base URL" body="C6 does not create DNS, TLS, or tunnels." control={<code>{location.origin}</code>} /><Setting title="LAN discovery" body="Not implemented in this release." control={<span className="status neutral">Planned</span>} /><Setting title="HTTPS" body="Terminate TLS in an operator-managed reverse proxy before remote use." control={<span className="status neutral">Operator managed</span>} /></section><section className="panel settings-panel"><PanelHead icon={ShieldCheck} title="Administration" /><Setting title="Account recovery" body="No recovery flow exists yet. Keep an owner session available." control={<span className="status neutral">Not available</span>} /><Setting title="Audit events" body="Security-sensitive local API operations are recorded." control={<span className="status success"><Check size={12} />Recorded</span>} /></section></div>; }
+
+function CreateProject({ mode, go, workspace }: { mode: "create" | "import"; go: (to: string) => void; workspace?: Workspace }) {
+  const [name, setName] = useState(""); const [error, setError] = useState(""); const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  async function create(event: FormEvent) { event.preventDefault(); if (!workspace) { setError("Create a workspace through the API before adding a project."); return; } try { const created = await api.createProject({ workspaceId: workspace.id, slug, name, description: "", defaultBranch: "main" }); go(`/projects/${created.slug}`); } catch (caught) { setError(caught instanceof Error ? caught.message : "Project could not be created."); } }
+  return <div className="flow-page"><button className="back-link" onClick={() => go("/")}><ArrowLeft size={14} />Projects</button><div className="flow-heading"><span className="flow-icon">{mode === "import" ? <GitFork size={24} /> : <PackagePlus size={24} />}</span><p>{workspace?.name ?? "Workspace"}</p><h1>{mode === "import" ? "Git import is planned" : "Create small software"}</h1><span>{mode === "import" ? "Network Git import is not implemented in this release." : "Start with a local repository initialized with README.md and c6.toml."}</span></div>{mode === "import" ? <div className="info-strip"><CircleAlert size={17} /><div><strong>Import unavailable</strong><p>C6 does not accept repository URLs or access tokens yet.</p></div></div> : <form className="create-form" onSubmit={create}><label>Project name<input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Release notes" /><small>It will live at <code>{workspace?.slug ?? "workspace"}/{slug || "release-notes"}</code></small></label><label>Start from<select><option>Empty local repository</option></select></label><fieldset><legend>Visibility</legend><label className="choice"><input type="radio" name="visibility" defaultChecked /><LockKeyhole size={16} /><span><strong>Workspace only</strong><small>Membership roles control repository access.</small></span></label></fieldset>{error && <p className="form-error">{error}</p>}<div className="form-actions"><button type="button" className="button secondary" onClick={() => go("/")}>Cancel</button><button className="button primary" disabled={!name}>Create project<ArrowRight size={14} /></button></div></form>}</div>;
+}
+
+function ClaimServer({ go }: { go: (to: string) => void }) {
+  const [token, setToken] = useState(""); const [displayName, setDisplayName] = useState(""); const [deviceLabel, setDeviceLabel] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+  async function claim(event: FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { await api.claim({ token, displayName, deviceLabel, publicKey: `c6-device-placeholder:${crypto.randomUUID()}` }); location.assign("/"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Server could not be claimed."); } finally { setBusy(false); } }
+  return <div className="auth-page"><div className="auth-brand"><span className="brand-mark"><Cloud size={18} /></span>C6</div><main className="claim-card"><span className="auth-icon"><Server size={25} /></span><p className="kicker">First run</p><h1>Claim this C6 server</h1><p>Create the first owner and a local device session. The public-key field is a placeholder in this release, not strong device authentication.</p><form className="auth-form" onSubmit={claim}><label>Bootstrap token<input aria-label="Bootstrap token" autoFocus value={token} onChange={(event) => setToken(event.target.value)} /></label><label>Your name<input aria-label="Your name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Device label<input aria-label="Device label" placeholder="e.g. Neal’s laptop" value={deviceLabel} onChange={(event) => setDeviceLabel(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="button primary wide" disabled={!token || !displayName || !deviceLabel || busy}>{busy ? "Claiming…" : "Claim server"}</button></form></main><p className="auth-foot"><ShieldCheck size={13} />The temporary bootstrap token file is deleted after a successful claim.</p></div>;
+}
+
+function JoinServer({ go }: { go: (to: string) => void }) {
+  const [token] = useState<string | undefined>(() => new URLSearchParams(location.hash.slice(1)).get("token") ?? undefined);
+  const [displayName, setDisplayName] = useState(""); const [deviceLabel, setDeviceLabel] = useState("");
+  const [pairing, setPairing] = useState(false); const [error, setError] = useState("");
+  useEffect(() => {
+    if (location.hash) history.replaceState({}, "", "/join");
+  }, []);
+  async function pair(event: FormEvent) { event.preventDefault(); if (!token) return; setPairing(true); setError(""); try { await api.redeemInvite({ token, displayName, deviceLabel, publicKey: `c6-device-placeholder:${crypto.randomUUID()}` }); location.assign("/"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Invitation could not be redeemed."); } finally { setPairing(false); } }
+  return <div className="auth-page"><div className="auth-brand"><span className="brand-mark"><Cloud size={18} /></span>C6</div><main className="claim-card"><span className="auth-icon"><UserPlus size={25} /></span><p className="kicker">Peer invitation</p><h1>{token ? "Join this C6 server" : "Invitation unavailable"}</h1>{token ? <><p>Redeem this opaque, single-use invitation to create a local peer and device session.</p><form className="auth-form" onSubmit={pair}><label>Your name<input aria-label="Your name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label><label>Device label<input aria-label="Device label" value={deviceLabel} onChange={(event) => setDeviceLabel(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="button primary wide" disabled={!displayName || !deviceLabel || pairing}><KeyRound size={15} />{pairing ? "Joining…" : "Join server"}</button></form></> : <><p>This link has no pairing token. Ask the server owner for a new single-use invitation.</p><button className="button secondary wide" onClick={() => go("/")}>Return to C6</button></>}</main><p className="auth-foot"><ShieldCheck size={13} />Invitation tokens are removed from browser history immediately.</p></div>;
+}
+
+function Life({ icon: Icon, label, value, detail, tone = "" }: { icon: typeof Code2; label: string; value: string; detail: string; tone?: string }) { return <div className={`life-step ${tone}`}><span><Icon size={16} /></span><div><small>{label}</small><strong>{value}</strong><em>{detail}</em></div></div>; }
+function Resource({ icon: Icon, name, detail, tone = "" }: { icon: typeof Box; name: string; detail: string; tone?: string }) { return <div className="resource"><span className={`round-icon ${tone}`}><Icon size={14} /></span><div><strong>{name}</strong><small>{detail}</small></div><ChevronRight size={14} /></div>; }
+function PanelHead({ icon: Icon, title, action, onAction }: { icon: typeof Box; title: string; action?: string; onAction?: () => void }) { return <div className="panel-heading"><span><Icon size={15} />{title}</span>{action && <button className="text-button" onClick={onAction} disabled={!onAction}>{action}{!onAction && " · planned"}</button>}</div>; }
+function Setting({ title, body, control }: { title: string; body: string; control: ReactNode }) { return <div className="setting"><div><strong>{title}</strong><p>{body}</p></div>{control}</div>; }
+function Switch({ checked }: { checked: boolean }) { const [on, setOn] = useState(checked); return <button className={`switch ${on ? "on" : ""}`} aria-pressed={on} aria-label="Toggle setting" onClick={() => setOn(!on)}><span /></button>; }
+function Field({ label, value }: { label: string; value: string }) { return <label className="field">{label}<input defaultValue={value} /></label>; }
+function EmptyState({ icon: Icon, title, body, action }: { icon: typeof Search; title: string; body: string; action?: ReactNode }) { return <div className="empty-state"><span><Icon size={23} /></span><strong>{title}</strong><p>{body}</p>{action}</div>; }
+function FixtureNotice({ label }: { label: string }) { return <div className="demo-banner fixture-notice"><Eye size={15} /><div><strong>Illustrative preview</strong><span>{label}</span></div></div>; }
+function StatusPage({ icon: Icon, title, body, action }: { icon: typeof CircleAlert; title: string; body: string; action?: ReactNode }) { return <main className="auth-page"><div className="claim-card"><span className="auth-icon"><Icon size={24} /></span><h1>{title}</h1><p>{body}</p>{action}</div></main>; }
+function Toast({ message, onClose }: { message: string; onClose: () => void }) { useEffect(() => { const timer = setTimeout(onClose, 5000); return () => clearTimeout(timer); }, [onClose]); return <div className="toast" role="status"><Check size={15} />{message}<button onClick={onClose} aria-label="Dismiss notification"><X size={14} /></button></div>; }

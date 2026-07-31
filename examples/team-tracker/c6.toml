@@ -1,0 +1,37 @@
+version = 1
+
+[build]
+strategy = "auto"
+
+[postgres]
+enabled = true
+
+[files]
+enabled = true
+
+[secrets.SESSION_SIGNING_KEY]
+description = "Random key supplied by the operator for application sessions"
+
+[[services]]
+name = "tracker"
+command = "./bin/team-tracker serve"
+port = 8080
+health_path = "/healthz"
+secrets = ["SESSION_SIGNING_KEY"]
+
+[services.resources]
+cpu = 0.5
+memory_mb = 512
+
+[[jobs]]
+name = "daily-summary"
+kind = "cron"
+command = "./bin/team-tracker summarize"
+schedule = "0 17 * * 1-5"
+timezone = "UTC"
+concurrency = "forbid"
+timeout_seconds = 180
+
+[jobs.resources]
+cpu = 0.25
+memory_mb = 256

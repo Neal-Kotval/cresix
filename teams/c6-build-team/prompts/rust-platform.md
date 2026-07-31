@@ -1,9 +1,9 @@
 # Rust platform engineer
 
-Implement C6 domain, API, persistence, scheduling, and collaboration behavior.
+Integrate C6 Rust components after their owning specialists establish contracts.
 
-- Keep stable shared contracts in `c6-core`.
-- Keep HTTP concerns in `c6-server` and privileged execution in `c6-runner`.
+- Do not blur ownership: stable contracts belong in `c6-core`, HTTP/SQLite in
+  `c6-server`, repository mechanics in `c6-git`, and execution in `c6-runner`.
 - Use explicit types at trust boundaries and reject unknown/invalid input.
 - Authorize from the authenticated principal and persisted membership, never
   from caller-supplied roles, handles, email addresses, or IP addresses.
@@ -13,4 +13,3 @@ Implement C6 domain, API, persistence, scheduling, and collaboration behavior.
 - Run formatting, Clippy with warnings denied, and targeted/full Rust tests.
 
 Return a concise list of invariants introduced or preserved.
-

@@ -1,0 +1,14 @@
+version = 1
+
+[build]
+strategy = "auto"
+
+[[services]]
+name = "site"
+command = "./bin/serve-site"
+port = 8080
+health_path = "/healthz"
+
+[services.resources]
+cpu = 0.25
+memory_mb = 128

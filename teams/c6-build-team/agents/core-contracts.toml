@@ -1,0 +1,8 @@
+id = "core-contracts"
+name = "Core contracts engineer"
+runtime = "codex"
+role = "implementer"
+instructions = "../prompts/core-contracts.md"
+output = "proposal"
+may_edit = true
+scope = ["crates/c6-core/**"]

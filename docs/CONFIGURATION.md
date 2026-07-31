@@ -1,0 +1,59 @@
+# C6 configuration reference
+
+The MVP server and runner are configured with environment variables. The
+checked-in [`config/c6.example.toml`](../config/c6.example.toml) records the
+longer-term configuration shape, but the binaries do not load TOML yet.
+
+## Server
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `C6_BIND` | `127.0.0.1` | Process listen address. Non-loopback plaintext HTTP is refused unless explicitly acknowledged. Compose uses `0.0.0.0` inside its isolated container network and separately restricts the published host address. |
+| `C6_PORT` | `8787` | TCP port inside the process/container. |
+| `C6_PUBLIC_BASE_URL` | `http://127.0.0.1:8787` | Exact browser origin used for mutation-origin checks and invitation links. Only lowercase `http://` or `https://` origins are accepted; credentials, paths, queries, and fragments are rejected. HTTPS enables the session cookie's `Secure` flag but does not add TLS to the listener. |
+| `C6_DATA_DIR` | `.c6` | Private directory containing `c6.sqlite3`, its WAL files, and `git/` bare repositories. Use one server process per directory. |
+| `C6_WEB_DIST` | `web/dist` | Built React assets served by the control plane. |
+| `C6_BOOTSTRAP_TOKEN` | random at first initialization | Optional first-owner claim token. If omitted, C6 writes the random value once to `${C6_DATA_DIR}/bootstrap-token` with mode `0600` and deletes it after claim. An environment-supplied value is hashed but never logged or written in plaintext. It is ignored after initialization. |
+| `C6_INSECURE_HTTP` | unset | Setting exactly `1` permits the plaintext listener on non-loopback `C6_BIND` and logs a warning. Use only for an explicitly protected private/container hop or trusted development network. It does not make sessions confidential. |
+| `RUST_LOG` | service defaults | Rust tracing filter, for example `c6_server=debug,tower_http=info`. Logs may contain operational metadata; protect them. |
+
+`C6_PUBLIC_BASE_URL` is security-sensitive. It must match the origin peers open
+in their browser; otherwise valid mutations are rejected. C6 always listens on
+plaintext HTTP. For remote use, terminate TLS at an operator-managed gateway,
+keep the backend on loopback when possible, and set the public URL to the HTTPS
+browser origin. Every non-loopback `C6_BIND` is refused unless
+`C6_INSECURE_HTTP=1` explicitly acknowledges the private/container hop; an
+`https://` public URL does not bypass that guard.
+
+## Runner
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `C6_RUNNER_SOCKET` | `/tmp/c6-runner.sock` | Unix socket for authenticated simulation clients. Compose uses `/run/c6/runner.sock`; the current control plane is not a client. |
+| `C6_RUNNER_STATE_DIR` | `/tmp/c6-runner-state` | Private request journal and runner state. Compose persists `/var/lib/c6-runner`. |
+| `C6_RUNNER_AUTH_KEY` | unset | Optional explicit request-authentication key of at least 32 UTF-8 bytes. It takes precedence over the key file and is intended for tests or managed secret injection. |
+| `C6_RUNNER_AUTH_KEY_FILE` | `runner.key` beside the socket | Private authentication key file. Compose uses `/run/c6/runner.key`. The runner atomically creates 32 random bytes with mode `0600` when it is absent. |
+
+An existing key file must be a regular, non-symlink file with exact mode `0600`
+and at least 32 bytes; unsafe files fail closed. Never put its contents in Git,
+a manifest, command arguments, or an issue. The current C6 server does not
+dispatch work to the runner, whose simulation backend executes no host commands
+or containers.
+
+## Compose-only settings
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `C6_BIND_ADDRESS` | `127.0.0.1` | Host interface receiving published port 8787. Keep loopback unless an authenticated HTTPS/VPN route is ready. |
+
+Changing `C6_PORT` changes the host port through Compose; the container remains
+on 8787. `C6_BIND_ADDRESS` is a Docker host-publishing setting and is distinct
+from the process-level `C6_BIND`. Set `C6_PUBLIC_BASE_URL` to the actual
+peer-facing URL rather than the container name or internal address.
+
+## Secret handling
+
+Treat `.env` as private operator configuration even though the default Compose
+file no longer requires a shared secret in it. Restrict it to the owner
+(`chmod 600 .env`). `docker compose config` interpolates values into its output,
+so inspect that output before sharing it.

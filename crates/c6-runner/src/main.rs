@@ -1,36 +1,71 @@
-//! Privileged execution boundary.
+//! C6 local runner daemon.
 //!
-//! The MVP runner intentionally starts as a separate daemon before it gains
-//! container lifecycle privileges. The control plane must never acquire direct
-//! Docker access as execution support is added.
+//! This process is a privilege boundary even though the current simulation
+//! backend has no elevated privileges. Never add Docker socket access to the
+//! control-plane process.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Context;
-use tokio::{io::AsyncWriteExt, net::UnixListener, signal};
+use c6_runner::{
+    Authenticator, DaemonConfig, FileResultStore, RunnerService, SimulationBackend,
+    load_or_create_auth_key, serve,
+};
+use tokio::signal;
 use tracing::info;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().init();
-    let socket = PathBuf::from(
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "c6_runner=info".into()),
+        )
+        .init();
+
+    let socket_path = PathBuf::from(
         std::env::var("C6_RUNNER_SOCKET").unwrap_or_else(|_| "/tmp/c6-runner.sock".into()),
     );
-    if socket.exists() {
-        std::fs::remove_file(&socket).context("remove stale runner socket")?;
-    }
-    let listener = UnixListener::bind(&socket).context("bind runner socket")?;
-    info!(path = %socket.display(), "runner boundary is ready");
-
-    loop {
-        tokio::select! {
-            connection = listener.accept() => {
-                let (mut stream, _) = connection.context("accept runner connection")?;
-                stream.write_all(b"{\"status\":\"ready\",\"capabilities\":[]}\n").await?;
-            }
-            _ = signal::ctrl_c() => break,
+    let state_dir = PathBuf::from(
+        std::env::var("C6_RUNNER_STATE_DIR").unwrap_or_else(|_| "/tmp/c6-runner-state".into()),
+    );
+    let auth_key = match std::env::var("C6_RUNNER_AUTH_KEY") {
+        Ok(key) => key.into_bytes(),
+        Err(std::env::VarError::NotPresent) => {
+            let key_path = std::env::var("C6_RUNNER_AUTH_KEY_FILE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| {
+                    socket_path
+                        .parent()
+                        .unwrap_or_else(|| std::path::Path::new("."))
+                        .join("runner.key")
+                });
+            load_or_create_auth_key(&key_path).context("load or create runner key file")?
         }
+        Err(error) => return Err(error).context("C6_RUNNER_AUTH_KEY must be valid UTF-8"),
+    };
+    let authenticator = Authenticator::new(auth_key).context("invalid runner key")?;
+    let store = Arc::new(
+        FileResultStore::new(state_dir)
+            .await
+            .context("initialize runner result store")?,
+    );
+    let service = Arc::new(RunnerService::new(
+        authenticator,
+        Arc::new(SimulationBackend),
+        store,
+    ));
+    let daemon = serve(
+        DaemonConfig {
+            socket_path: socket_path.clone(),
+        },
+        service,
+    );
+
+    info!(path = %socket_path.display(), backend = "simulation", "runner boundary is ready");
+    tokio::select! {
+        result = daemon => result.context("serve runner")?,
+        result = signal::ctrl_c() => result.context("listen for shutdown")?,
     }
-    let _ = std::fs::remove_file(socket);
     Ok(())
 }

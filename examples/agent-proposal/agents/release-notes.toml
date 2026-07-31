@@ -1,0 +1,3 @@
+runtime = "codex"
+instructions = "prompts/release-notes.md"
+output = "proposal"

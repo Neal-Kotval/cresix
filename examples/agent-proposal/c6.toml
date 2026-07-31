@@ -1,0 +1,17 @@
+version = 1
+
+[build]
+strategy = "auto"
+
+[[jobs]]
+name = "release-notes"
+kind = "agent"
+agent_config = "agents/release-notes.toml"
+concurrency = "forbid"
+timeout_seconds = 600
+repository_write = "proposal"
+network = []
+
+[jobs.resources]
+cpu = 1.0
+memory_mb = 1024

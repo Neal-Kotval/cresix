@@ -1,0 +1,8 @@
+id = "git-service"
+name = "Git service engineer"
+runtime = "codex"
+role = "implementer"
+instructions = "../prompts/git-service.md"
+output = "proposal"
+may_edit = true
+scope = ["crates/c6-git/**", "Cargo.toml", "Cargo.lock"]

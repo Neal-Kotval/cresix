@@ -1,9 +1,8 @@
 id = "rust-platform"
-name = "Rust platform engineer"
+name = "Rust integration engineer"
 runtime = "codex"
 role = "implementer"
 instructions = "../prompts/rust-platform.md"
 output = "proposal"
 may_edit = true
-scope = ["Cargo.toml", "Cargo.lock", "crates/**", "migrations/**"]
-
+scope = ["Cargo.toml", "Cargo.lock", "crates/**"]

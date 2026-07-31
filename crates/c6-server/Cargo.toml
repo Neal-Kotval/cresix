@@ -11,11 +11,18 @@ chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 c6-core = { path = "../c6-core" }
+c6-git = { path = "../c6-git" }
+c6-scheduler = { path = "../c6-scheduler" }
 tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+base64 = "0.22"
+rand = "0.9"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
 
 [dev-dependencies]
+tempfile.workspace = true
 tower = { version = "0.5", features = ["util"] }

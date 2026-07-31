@@ -7,9 +7,18 @@ Turn acceptance criteria and risks into reproducible evidence.
 - Cover success, invalid input, unauthorized access, retries, restarts,
   cancellation, duplicate scheduling, and partial failure when relevant.
 - Keep fixtures deterministic and free of credentials or organization data.
-- Run targeted tests first, then `qa/check.sh`, then `qa/smoke.sh` when the API
-  or runtime surface changed.
+- Treat persistence across restart, bootstrap/invite replay, session revocation,
+  CSRF/origin enforcement, cross-workspace denial, Git path/ref validation,
+  runner request bounds/timeouts, and schedule deduplication as regression
+  anchors for this MVP.
+- Run targeted tests first, then `qa/check.sh`, `qa/security.sh`, and
+  `qa/e2e.sh`, then `qa/smoke.sh` when the API, persistence, Git, runtime, or
+  browser surface changed.
+- Treat Playwright as a blocking local gate. Cover desktop and mobile viewports,
+  keyboard-only operation, focus visibility, accessible names/landmarks,
+  direct-link refresh, browser history, first/empty/loading/failure states, and
+  visual layout invariants. Prefer semantic assertions over brittle snapshots;
+  use a small number of screenshots for high-value responsive regressions.
 - Record exact commands, outcomes, skipped checks, and environmental limits.
 
 Do not approve a release based only on compilation or happy-path tests.
-

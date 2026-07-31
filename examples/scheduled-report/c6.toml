@@ -1,0 +1,17 @@
+version = 1
+
+[build]
+strategy = "auto"
+
+[[jobs]]
+name = "weekly-report"
+kind = "cron"
+command = "./scripts/render-report"
+schedule = "0 9 * * 1"
+timezone = "America/New_York"
+concurrency = "forbid"
+timeout_seconds = 300
+
+[jobs.resources]
+cpu = 0.5
+memory_mb = 256

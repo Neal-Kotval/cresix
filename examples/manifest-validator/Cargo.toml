@@ -1,0 +1,11 @@
+[package]
+name = "c6-example-manifest-validator"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+c6-core = { path = "../../crates/c6-core" }
+
+# Keep this tiny verification tool independent from the product workspace.
+[workspace]

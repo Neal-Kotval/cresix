@@ -1,12 +1,12 @@
 version = 1
 name = "c6-build-team"
-description = "Build, secure, verify, and document bounded changes to C6."
+description = "Build, secure, verify, and document the self-hosted C6 MVP."
 orchestrator = "lead"
-max_parallel = 3
+max_parallel = 8
 
 [policy]
-default_branch_write = "deny"
-agent_repository_write = "proposal"
+default_branch_write = "explicit-owner-authority"
+agent_repository_write = "owned-scope"
 secrets = "never-share"
 network = "declared-only"
 require_independent_release_review = true
@@ -22,6 +22,18 @@ config = "agents/product-architect.toml"
 [[agents]]
 id = "rust-platform"
 config = "agents/rust-platform.toml"
+
+[[agents]]
+id = "core-contracts"
+config = "agents/core-contracts.toml"
+
+[[agents]]
+id = "git-service"
+config = "agents/git-service.toml"
+
+[[agents]]
+id = "server-control-plane"
+config = "agents/server-control-plane.toml"
 
 [[agents]]
 id = "web-experience"
@@ -56,6 +68,17 @@ name = "repository-checks"
 command = "bash teams/c6-build-team/qa/check.sh"
 
 [[gates]]
-name = "live-smoke"
+name = "security-regression"
+command = "bash teams/c6-build-team/qa/security.sh"
+
+[[gates]]
+name = "headless-browser"
+command = "bash teams/c6-build-team/qa/e2e.sh"
+
+[[gates]]
+name = "live-regression"
 command = "bash teams/c6-build-team/qa/smoke.sh"
 
+[[gates]]
+name = "self-hosted-dogfood"
+command = "bash teams/c6-build-team/qa/dogfood.sh"

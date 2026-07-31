@@ -1,46 +1,55 @@
 # C6 roadmap
 
-## Slice 1 — visible foundation
+This roadmap records product boundaries, not release promises. Completed items
+must have working implementation and regression coverage; UI-only or schema-only
+shapes remain unchecked.
 
-- [x] Rust workspace and stable manifest contract
-- [x] Project roles and permission tests
-- [x] GitHub-like project website
-- [x] Project, pull request, deployment, and run API shapes
-- [x] Separate runner process boundary
-- [x] PostgreSQL persistence schema
-- [x] One-server Compose topology
-- [x] LAN-sharing documentation
-- [ ] Persistent repository/API store wiring
-- [ ] First-user setup and GitHub OAuth redirect
+## Local peer foundation
 
-## Slice 2 — collaboration
+- [x] Rust workspace and versioned project manifest contract
+- [x] Cumulative project-role policy with unit tests
+- [x] GitHub-like project interface
+- [x] Separate, authenticated runner process protocol with simulation backend
+- [x] One-command, loopback-only Compose topology
+- [x] Embedded SQLite control store and startup migrations
+- [x] One-time owner claim, peer invitations, device sessions, and revocation
+- [x] Durable projects and server-side authorization on control-plane operations
+- [ ] Local backup/restore verification
 
-- Git smart HTTP and SSH transport
-- Account tokens and SSH keys
-- Repository browser, branches, commits, diffs, and pull-request mutations
-- Invitations and cumulative project roles
-- Preview lifecycle without CI/check ceremony
+## Git collaboration
 
-## Slice 3 — hosting
+- Bare-repository creation and repository browser
+- Authenticated Git smart HTTP with revocable personal tokens
+- Branches, commits, trees, blobs, and bounded diffs
+- Pull requests with revision pinning and fast-forward-only merge
+- Contributor/default-branch protection and audit events
+- Forks that copy history but never credentials or runtime state
 
-- Auto-build and Dockerfile builders
-- Rootless container execution, health checks, quotas, and logs
-- Authenticated app gateway and signed identity
-- Explicit publish and immutable rollback
-- Per-project PostgreSQL and object buckets
+## Local hosting
 
-## Slice 4 — jobs and agents
+- Dockerfile build pinned to a commit and resulting image digest
+- Bounded workload execution without host Docker or filesystem access
+- Authenticated application gateway and health-gated publish
+- Immutable rollback that does not pretend to roll back mutable data
+- Manual jobs, durable logs, cancellation, and interrupted-run recovery
+- Five-field cron schedules with IANA timezones and duplicate prevention
 
-- Durable scheduler and concurrency policies
-- Encrypted, write-only secrets
+## Agents and secrets
+
+- Encrypted, write-only per-install secret storage
+- Explicit per-job secret grants and log redaction
 - Pinned Codex CLI runtime using a separately granted API key
-- Egress policy and resource enforcement
+- Deny-by-default network policy and resource enforcement
 - Agent-generated proposal branches and pull requests
 
-## Slice 5 — portable hosting
+## Earned extensions
 
-- Outbound mTLS runner enrollment
-- Safe operator-configured tunnel workflow
-- Backups, restores, upgrades, and operational health
-- Stronger microVM isolation before hostile multi-tenant hosting
+Only add these after a concrete deployment requires them:
 
+- Durable re-authentication and owner recovery
+- GitHub OAuth, company OIDC, SCIM, or group synchronization
+- Operator-provided relay integration or a hosted C6 relay
+- Remote runners and stronger microVM isolation
+- Workload PostgreSQL, object buckets, or an external OCI registry
+- Multi-server federation, high availability, or Kubernetes
+- Dynamic plugins, CI checks, or merge queues

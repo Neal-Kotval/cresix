@@ -19,6 +19,22 @@ pub enum ManifestError {
     MissingAgentConfig(String),
     #[error("secret reference {0:?} is not declared in [secrets]")]
     UnknownSecret(String),
+    #[error("runtime name {0:?} must be 1-63 lowercase letters, digits, or hyphens")]
+    InvalidName(String),
+    #[error("runtime {0:?} must declare a command")]
+    MissingCommand(String),
+    #[error("job {0:?} must use a positive timeout")]
+    InvalidTimeout(String),
+    #[error("runtime {0:?} must request positive, finite CPU and non-zero memory")]
+    InvalidResources(String),
+    #[error("scheduled job {0:?} must declare schedule and timezone together")]
+    PartialSchedule(String),
+    #[error("dockerfile builds must declare a relative dockerfile path")]
+    MissingDockerfile,
+    #[error("manifest path {0:?} must be a safe relative path")]
+    UnsafePath(String),
+    #[error("secret name {0:?} must be a valid uppercase environment variable name")]
+    InvalidSecretName(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,7 +71,7 @@ impl Default for Build {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BuildStrategy {
     #[default]
@@ -118,7 +134,7 @@ pub enum JobKind {
     Agent,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Concurrency {
     #[default]
@@ -180,26 +196,62 @@ impl ProjectManifest {
         if self.version != 1 {
             return Err(ManifestError::UnsupportedVersion(self.version));
         }
+        if self.build.strategy == BuildStrategy::Dockerfile {
+            let path = self
+                .build
+                .dockerfile
+                .as_deref()
+                .filter(|path| !path.trim().is_empty())
+                .ok_or(ManifestError::MissingDockerfile)?;
+            validate_relative_path(path)?;
+        }
+        for secret in self.secrets.keys() {
+            validate_secret_name(secret)?;
+        }
         let mut names = BTreeSet::new();
         for service in &self.services {
+            validate_name(&service.name)?;
             if !names.insert(service.name.as_str()) {
                 return Err(ManifestError::DuplicateName(service.name.clone()));
             }
             if service.port == 0 {
                 return Err(ManifestError::InvalidPort(service.name.clone()));
             }
+            if service.command.trim().is_empty() {
+                return Err(ManifestError::MissingCommand(service.name.clone()));
+            }
+            validate_resources(&service.name, &service.resources)?;
             self.validate_secrets(&service.secrets)?;
         }
         for job in &self.jobs {
+            validate_name(&job.name)?;
             if !names.insert(job.name.as_str()) {
                 return Err(ManifestError::DuplicateName(job.name.clone()));
             }
             if job.kind == JobKind::Cron && (job.schedule.is_none() || job.timezone.is_none()) {
                 return Err(ManifestError::InvalidCron(job.name.clone()));
             }
+            if job.schedule.is_some() != job.timezone.is_some() {
+                return Err(ManifestError::PartialSchedule(job.name.clone()));
+            }
             if job.kind == JobKind::Agent && job.agent_config.is_none() {
                 return Err(ManifestError::MissingAgentConfig(job.name.clone()));
             }
+            if matches!(job.kind, JobKind::Command | JobKind::Cron)
+                && job
+                    .command
+                    .as_deref()
+                    .is_none_or(|command| command.trim().is_empty())
+            {
+                return Err(ManifestError::MissingCommand(job.name.clone()));
+            }
+            if let Some(path) = &job.agent_config {
+                validate_relative_path(path)?;
+            }
+            if job.timeout_seconds == 0 {
+                return Err(ManifestError::InvalidTimeout(job.name.clone()));
+            }
+            validate_resources(&job.name, &job.resources)?;
             self.validate_secrets(&job.secrets)?;
         }
         Ok(())
@@ -212,6 +264,62 @@ impl ProjectManifest {
             }
         }
         Ok(())
+    }
+}
+
+fn validate_name(name: &str) -> Result<(), ManifestError> {
+    let bytes = name.as_bytes();
+    let boundary_is_alphanumeric = bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes.last().is_some_and(u8::is_ascii_alphanumeric);
+    if !name.is_empty()
+        && name.len() <= 63
+        && boundary_is_alphanumeric
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
+    {
+        Ok(())
+    } else {
+        Err(ManifestError::InvalidName(name.into()))
+    }
+}
+
+fn validate_secret_name(name: &str) -> Result<(), ManifestError> {
+    let mut bytes = name.bytes();
+    let valid_start = bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_uppercase() || byte == b'_');
+    if valid_start
+        && bytes.all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        Ok(())
+    } else {
+        Err(ManifestError::InvalidSecretName(name.into()))
+    }
+}
+
+fn validate_resources(name: &str, resources: &Resources) -> Result<(), ManifestError> {
+    if !resources.cpu.is_finite() || resources.cpu <= 0.0 || resources.memory_mb == 0 {
+        Err(ManifestError::InvalidResources(name.into()))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_relative_path(path: &str) -> Result<(), ManifestError> {
+    let path_value = std::path::Path::new(path);
+    let safe = !path.trim().is_empty()
+        && !path_value.is_absolute()
+        && path_value.components().all(|component| {
+            matches!(
+                component,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        });
+    if safe {
+        Ok(())
+    } else {
+        Err(ManifestError::UnsafePath(path.into()))
     }
 }
 
@@ -281,6 +389,126 @@ command = "./job"
         assert!(matches!(
             ProjectManifest::parse(source),
             Err(ManifestError::DuplicateName(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_command_job_without_a_command() {
+        let source = r#"
+version = 1
+[[jobs]]
+name = "backup"
+"#;
+        assert!(matches!(
+            ProjectManifest::parse(source),
+            Err(ManifestError::MissingCommand(name)) if name == "backup"
+        ));
+    }
+
+    #[test]
+    fn rejects_partial_schedule_configuration() {
+        let source = r#"
+version = 1
+[[jobs]]
+name = "backup"
+command = "./backup"
+schedule = "0 2 * * *"
+"#;
+        assert!(matches!(
+            ProjectManifest::parse(source),
+            Err(ManifestError::PartialSchedule(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_paths_that_escape_the_repository() {
+        let source = r#"
+version = 1
+[[jobs]]
+name = "agent"
+kind = "agent"
+agent_config = "../private.toml"
+"#;
+        assert!(matches!(
+            ProjectManifest::parse(source),
+            Err(ManifestError::UnsafePath(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_resource_limits() {
+        let source = r#"
+version = 1
+[[services]]
+name = "web"
+command = "./web"
+port = 8080
+[services.resources]
+cpu = 0.0
+memory_mb = 512
+"#;
+        assert!(matches!(
+            ProjectManifest::parse(source),
+            Err(ManifestError::InvalidResources(_))
+        ));
+    }
+
+    #[test]
+    fn dockerfile_build_requires_a_safe_path() {
+        let missing = r#"
+version = 1
+[build]
+strategy = "dockerfile"
+"#;
+        assert!(matches!(
+            ProjectManifest::parse(missing),
+            Err(ManifestError::MissingDockerfile)
+        ));
+
+        let valid = r#"
+version = 1
+[build]
+strategy = "dockerfile"
+dockerfile = "deploy/Dockerfile"
+"#;
+        assert!(ProjectManifest::parse(valid).is_ok());
+    }
+
+    #[test]
+    fn rejects_names_that_are_unsafe_as_route_and_container_identifiers() {
+        for name in [
+            "",
+            "Uppercase",
+            "starts_underscore",
+            "../escape",
+            "trailing-",
+        ] {
+            let source = format!(
+                r#"
+version = 1
+[[services]]
+name = {name:?}
+command = "./web"
+port = 8080
+"#
+            );
+            assert!(matches!(
+                ProjectManifest::parse(&source),
+                Err(ManifestError::InvalidName(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_unsafe_secret_environment_names() {
+        let source = r#"
+version = 1
+[secrets.bad-name]
+description = "invalid environment key"
+"#;
+        assert!(matches!(
+            ProjectManifest::parse(source),
+            Err(ManifestError::InvalidSecretName(_))
         ));
     }
 }

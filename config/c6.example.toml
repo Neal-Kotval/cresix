@@ -1,23 +1,27 @@
+# Design reference only. The current binaries read environment variables and
+# do not load this TOML file.
+
 [server]
-listen = "0.0.0.0:8787"
-public_base_url = "http://localhost:8787"
-signup = "invite_only"
+listen = "127.0.0.1:8787"
+public_base_url = "http://127.0.0.1:8787"
+data_dir = "/var/lib/c6"
 
-[auth.local]
-# Kept for the server-owner recovery account.
-enabled = true
-
-[auth.github]
-# When configured, this becomes the primary sign-in button. Provider identities
-# link to C6-owned users; GitHub never owns project authorization.
-enabled = false
-client_id_env = "C6_GITHUB_CLIENT_ID"
-client_secret_env = "C6_GITHUB_CLIENT_SECRET"
-
-[git]
-root = "/var/lib/c6/git"
-ssh_listen = "0.0.0.0:2222"
+[trust]
+# Implemented v1: the immutable bootstrap administrator creates a one-time
+# invitation, redemption issues a revocable cookie session, and all role state
+# remains local. Workspace owners are not server administrators.
+enrollment = "invite_session"
 
 [runner]
 socket = "/run/c6/runner.sock"
-trusted_team_code_only = true
+state_dir = "/var/lib/c6-runner"
+# Runner authentication is internal process-to-process protection. It does not
+# authenticate a browser peer and the simulation backend executes no workloads.
+auth_key_file = "/run/c6/runner.key"
+
+[security]
+# C6 always listens on HTTP. IP restrictions may narrow reachability but never
+# establish identity. A non-loopback backend requires explicit acknowledgement,
+# even when the browser-facing public URL uses HTTPS at a reverse proxy.
+require_non_loopback_http_acknowledgement = true
+allow_insecure_development = false

@@ -1,0 +1,50 @@
+import { expect, test } from "@playwright/test";
+
+test("fresh real backend: claim, workspace, project, invite redemption, reload, and recorded run intent", async ({ page, context, browser, isMobile }) => {
+  test.skip(!process.env.C6_REAL_BACKEND, "Opt-in smoke against a fresh C6 server.");
+  const bootstrapToken = process.env.C6_BOOTSTRAP_TOKEN ?? "c6-e2e-bootstrap-token-32-characters-minimum";
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/claim$/);
+  await page.getByRole("textbox", { name: "Bootstrap token" }).fill(bootstrapToken);
+  await page.getByRole("textbox", { name: "Your name" }).fill("C6 E2E Owner");
+  await page.getByRole("textbox", { name: "Device label" }).fill("Playwright Chromium");
+  await page.getByRole("button", { name: "Claim server" }).click();
+  await expect(page).toHaveURL(/\/$/);
+
+  const origin = new URL(page.url()).origin;
+  await page.getByRole("textbox", { name: "Workspace name" }).fill("C6 Build");
+  await page.getByRole("button", { name: "Create workspace" }).click();
+  await expect(page.getByRole("heading", { name: "Your small software" })).toBeVisible();
+  await page.getByRole("link", { name: "New project" }).click();
+  await page.getByLabel("Project name").fill("Cresix");
+  await page.getByRole("button", { name: /Create project/ }).click();
+  await expect(page).toHaveURL(/\/projects\/cresix$/);
+  await expect(page.getByRole("heading", { name: "Cresix" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Cresix" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Runs" }).click();
+  await page.getByRole("button", { name: "Record run intent" }).click();
+  await expect(page.getByRole("status")).toContainText("Run intent recorded");
+  if (isMobile) await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.getByRole("link", { name: "Trusted peers" }).click();
+  await page.getByRole("button", { name: "Invite peer" }).click();
+  const inviteResponse = page.waitForResponse((response) => response.url().endsWith("/api/v1/invites") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Create invite" }).click();
+  await expect(page.getByRole("status")).toContainText("Invite created");
+  const invitation = await (await inviteResponse).json() as { inviteUrl: string };
+  const peerContext = await browser.newContext();
+  const peerPage = await peerContext.newPage();
+  await peerPage.goto(invitation.inviteUrl);
+  await peerPage.getByRole("textbox", { name: "Your name" }).fill("C6 E2E Peer");
+  await peerPage.getByRole("textbox", { name: "Device label" }).fill("Peer Chromium");
+  await peerPage.getByRole("button", { name: "Join server" }).click();
+  await expect(peerPage).toHaveURL(origin + "/");
+  await peerContext.close();
+  const peers = await page.request.get(`${origin}/api/v1/peers`);
+  expect(peers.ok()).toBeTruthy();
+  expect(JSON.stringify(await peers.json())).toContain("C6 E2E Peer");
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Trusted peers" })).toBeVisible();
+  await expect(page.getByText("C6 E2E Peer")).toBeVisible();
+});
