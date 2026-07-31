@@ -1,10 +1,12 @@
 # C6
 
-**A home for small software.**
+**An agent-centric software forge for small software.**
 
-C6 is an open-source, self-hosted workspace for small web applications,
-scheduled jobs, and agent-powered automations. It combines Git-native project
-history and collaboration with the machinery needed to run the result.
+C6 is an open-source, self-hosted forge for small web applications, scheduled
+jobs, and agent-built automations. It keeps ordinary Git, collaboration,
+declared runtime intent, and eventually hosting together under one authority
+the operator controls. Humans use the web and CLI; agents should be able to use
+the same typed, pollable interfaces without a privileged side door.
 
 The repository is named **cresix**. The product is called **C6**.
 
@@ -14,10 +16,12 @@ deployment patterns, examples, dogfood, and testing.
 
 > [!WARNING]
 > C6 is currently a local development preview. The control plane has durable
-> invitation-bound cookie sessions, role checks, SQLite state, and local Git
-> repositories. It does not provide key-based login, Git network transport,
-> hosting, or workload execution. The product UI also uses preview fixtures for
-> unsupported flows. Do not expose this revision to an untrusted network.
+> invitation-bound cookie sessions, expiring CLI/Git credentials, role checks,
+> SQLite state, local Git repositories, a thin CLI, and opt-in authenticated
+> read-only Git smart HTTP. It does not provide key-based login, Git push,
+> application hosting, workload execution, owner recovery, or rate limiting. Some UI flows
+> use labelled preview fixtures. Do not expose this revision to an untrusted
+> network.
 
 ## Run the local preview
 
@@ -88,6 +92,45 @@ not a server administrator. If the bootstrap administrator's sole 30-day
 session is lost or revoked, or expires after 30 days without a successful
 session read, global administration is locked out. Active use renews the
 30-day window, but lost-cookie recovery remains a blocking preview limitation.
+
+## CLI and read-only Git
+
+Build the preview CLI and credential helper with `cargo build -p c6-cli`, then
+put both binaries on `PATH` (for a source checkout,
+`export PATH="$PWD/target/debug:$PATH"`). In
+the Hub, open **Credentials** and create two different credentials: a CLI token
+with `api:read`, and a Git token with `git:read`. Each plaintext token is shown
+once. Restart the server with `C6_GIT_HTTP_ENABLED=1` to opt into read-only Git;
+it is disabled by default while public-exposure hardening is incomplete.
+
+```bash
+cargo run -p c6-cli --bin c6 -- server add http://127.0.0.1:8787 \
+  --name local --allow-http-localhost
+read -rsp 'CLI token: ' C6_CLI_TOKEN; echo
+printf '%s\n' "$C6_CLI_TOKEN" | cargo run -p c6-cli --bin c6 -- \
+  auth login --server local --token-stdin --plaintext-store
+unset C6_CLI_TOKEN
+cargo run -p c6-cli --bin c6 -- project list --server local
+cargo run -p c6-cli --bin c6 -- clone my-team/my-project
+```
+
+Read the CLI token into a non-exported shell variable with a hidden prompt, and
+unset it immediately after login; do not put either token in command arguments,
+URLs, environment configuration, or shell history.
+
+On the first clone, Git requests username `c6` and the separate Git token as
+the password. The preview helper stores tokens in an owner-only plaintext file;
+see the [CLI guide](docs/CLI.md) before using it. Clone, fetch, and pull are
+implemented. Push is rejected and not advertised.
+
+## One authority, replaceable ingress
+
+Each sovereign installation has one authoritative server. Run it on a laptop,
+an always-on Linux host, or a small AWS VM, and put any remote route behind
+trusted HTTPS. ngrok can be convenient for a laptop demo, but it is an optional
+ingress adapter—never C6 identity, authorization, storage, or a required
+service. See [Deployment](docs/DEPLOYMENT.md) and the accepted
+[single-authority ADR](docs/decisions/0001-single-authority-self-hosting.md).
 
 ## Project contract
 

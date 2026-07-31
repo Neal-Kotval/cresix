@@ -15,6 +15,7 @@ longer-term configuration shape, but the binaries do not load TOML yet.
 | `C6_WEB_DIST` | `web/dist` | Built React assets served by the control plane. |
 | `C6_BOOTSTRAP_TOKEN` | random at first initialization | Optional first-owner claim token. If omitted, C6 writes the random value once to `${C6_DATA_DIR}/bootstrap-token` with mode `0600` and deletes it after claim. An environment-supplied value is hashed but never logged or written in plaintext. It is ignored after initialization. |
 | `C6_INSECURE_HTTP` | unset | Setting exactly `1` permits the plaintext listener on non-loopback `C6_BIND` and logs a warning. Use only for an explicitly protected private/container hop or trusted development network. It does not make sessions confidential. |
+| `C6_GIT_HTTP_ENABLED` | unset/`false` | `1` or `true` enables authenticated read-only Git smart HTTP; `0` or `false` disables it. Other values fail startup. It defaults off because rate limiting and production exposure hardening are incomplete. It never enables push. |
 | `RUST_LOG` | service defaults | Rust tracing filter, for example `c6_server=debug,tower_http=info`. Logs may contain operational metadata; protect them. |
 
 `C6_PUBLIC_BASE_URL` is security-sensitive. It must match the origin peers open
@@ -50,6 +51,24 @@ Changing `C6_PORT` changes the host port through Compose; the container remains
 on 8787. `C6_BIND_ADDRESS` is a Docker host-publishing setting and is distinct
 from the process-level `C6_BIND`. Set `C6_PUBLIC_BASE_URL` to the actual
 peer-facing URL rather than the container name or internal address.
+
+## CLI
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `C6_CONFIG_DIR` | platform user configuration directory plus `c6` | Override the directory containing owner-only `config.toml` and `credentials.json`. |
+| `C6_ALLOW_PLAINTEXT_CREDENTIALS` | unset | Exact value `1` is equivalent to the CLI's explicit `--plaintext-store` opt-in. The preview store is not encrypted. |
+
+CLI server origins require HTTPS except for loopback HTTP explicitly added with
+`--allow-http-localhost`. See [CLI](CLI.md).
+
+## Deferred runtime configuration
+
+There are no supported Docker runtime, event-poll, MCP, secret-store master
+key, 1Password, or Doppler settings today. Do not invent environment variables
+for those features. Their intended boundaries are described in the
+[agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md); settings
+become part of this reference only when a working vertical slice ships.
 
 ## Secret handling
 

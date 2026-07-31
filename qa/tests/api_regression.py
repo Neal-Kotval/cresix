@@ -90,6 +90,7 @@ class Server:
         *,
         secure_cookie: bool = False,
         supplied_bootstrap: bool = True,
+        extra_environment: dict[str, str] | None = None,
     ) -> None:
         self.data_dir = data_dir
         self.port = self._free_port()
@@ -98,6 +99,7 @@ class Server:
         self.process: subprocess.Popen[bytes] | None = None
         self.log = data_dir.parent / f"server-{self.port}.log"
         self.supplied_bootstrap = supplied_bootstrap
+        self.extra_environment = extra_environment or {}
 
     @staticmethod
     def _free_port() -> int:
@@ -121,6 +123,7 @@ class Server:
             environment["C6_BOOTSTRAP_TOKEN"] = BOOTSTRAP_TOKEN
         else:
             environment.pop("C6_BOOTSTRAP_TOKEN", None)
+        environment.update(self.extra_environment)
         log_handle = self.log.open("wb")
         self.process = subprocess.Popen(
             [str(SERVER)], cwd=ROOT, env=environment, stdout=log_handle, stderr=subprocess.STDOUT

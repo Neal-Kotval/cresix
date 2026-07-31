@@ -9,8 +9,10 @@ data from a C6 installation.
 C6 is currently a development preview. Its control plane persists hashed
 sessions, single-use invitations, current-role authorization, revocation, and
 audit events. The `publicKey` enrollment value is opaque metadata: it is never
-challenged and cannot authenticate a returning peer. Git network transport,
-hosting, workload sandboxing, and encrypted secret values are not implemented.
+challenged and cannot authenticate a returning peer. Authenticated read-only
+Git smart HTTP is implemented behind the explicit, default-off
+`C6_GIT_HTTP_ENABLED` preview flag. Hosting, workload sandboxing, and encrypted
+secret values are not implemented.
 **Do not expose this revision to the public internet or run untrusted code.** A
 healthy process is not evidence of a secure deployment.
 
@@ -39,17 +41,21 @@ A regular invited peer who loses their cookie can receive a new invitation
 from the still-authenticated server administrator. This creates a new local
 peer record; it does not recover the old identity or the server administrator.
 
-The current control-plane tests cover a mode-`0600` bootstrap-token file and its
-post-claim deletion, invitation expiry and replay, hashed sessions, cookie
-flags, CSRF double-submit checks, strict origin checks, peer revocation,
-cumulative roles, and transactional audit events. That scope does not cover Git
-transport or workload execution.
+The current tests cover a mode-`0600` bootstrap-token file and its post-claim
+deletion, invitation expiry and replay, hashed sessions and opaque CLI/Git token
+verifiers, cookie flags, CSRF and strict-origin checks, peer and credential
+revocation, cumulative roles, transactional audit events, and authenticated
+read-only Git advertisement and fetch behavior. The Git preview also has real
+process coverage for credential-class confusion, revocation, restart, and
+receive-pack denial. That scope does not cover guarded push, hostile network
+load, or workload execution.
 
 Public exposure remains blocked until C6 adds and verifies:
 
 - durable re-authentication and an explicit owner recovery mechanism;
 - throttling for bootstrap, pairing, and session abuse;
-- authenticated Git transport with branch-level authorization;
+- throttling and concurrency controls for authenticated Git transport;
+- guarded Git push with atomic ref authorization, reconciliation, and audit;
 - enforced workload isolation and encrypted, scoped secret injection.
 
 ## Invariants

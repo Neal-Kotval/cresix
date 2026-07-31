@@ -14,6 +14,10 @@ use std::{
 use tempfile::NamedTempFile;
 use thiserror::Error;
 
+mod smart_http;
+
+pub use smart_http::{SmartHttpBackend, SmartHttpError, SmartHttpLimits, SmartHttpResponse};
+
 #[derive(Debug, Error)]
 pub enum GitError {
     #[error("invalid repository slug: {0}")]

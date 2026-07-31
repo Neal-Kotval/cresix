@@ -17,3 +17,23 @@ export interface Invite { id: string; code: string; role: Role; expiresAt: strin
 export interface Job { id: string; name: string; kind: Run["kind"]; command: string; schedule?: string; timezone?: string; enabled: boolean; lastStatus?: RunStatus; nextRunAt?: string; }
 export interface SecretMetadata { name: string; scope: "project" | "workspace"; grants: string[]; updatedAt: string; updatedBy: string; version: number; }
 export interface Branch { name: string; sha: string; updatedAt: string; protected: boolean; ahead?: number; behind?: number; }
+
+export type CredentialType = "cli" | "git";
+export type CredentialScope = "api:read" | "api:write" | "git:read" | "git:write";
+export interface CredentialMetadata {
+  id: string;
+  deviceId: string;
+  label: string;
+  credentialType: CredentialType;
+  scopes: CredentialScope[];
+  restriction?: { workspaceId?: string; projectId?: string };
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
+}
+export interface ProjectRemote {
+  projectId: string;
+  cloneUrl: string;
+  capabilities: { fetch: boolean; push: boolean };
+}

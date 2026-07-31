@@ -26,6 +26,18 @@ Runner dogfood talks directly to the simulation daemon. API dogfood verifies
 that server run/deployment records say `dispatchAvailable: false`. Together
 these tests demonstrate both sides without claiming they are integrated.
 
+Phase 2 dogfood also builds the `c6` and `git-credential-c6` binaries, exercises
+separate credential classes and immediate revocation, verifies canonical remote
+discovery, and drives upload-pack against a temporary bare repository. The
+transport must be explicitly enabled for the scenario and receive-pack must
+remain unavailable. This proves read-only Git behavior, not push, hosting, or a
+complete public-exposure posture.
+
+The CLI's `--json` output is the first agent-consumable dogfood surface. Event
+cursors, long polling, schedule dispatch, Docker execution, secrets, and MCP
+remain future gates defined in the
+[agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md).
+
 ## Why no hosted CI
 
 The project intentionally makes one local command authoritative so a fork or

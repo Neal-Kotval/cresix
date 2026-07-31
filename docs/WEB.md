@@ -31,9 +31,10 @@ Peers without the capability remain in Hub. Direct Admin navigation must render
 an explicit unauthorized state rather than silently showing fixtures or
 inferring privilege from workspace membership.
 
-The future `c6` CLI will be another thin client of these same API and capability
-checks. There are no implemented CLI commands and the web app must not imply
-otherwise.
+The implemented `c6` CLI is another thin client of these same API and
+capability checks. Hub's `/credentials` page issues, lists, and revokes
+separate CLI and read-only Git credentials. Plaintext is shown once; metadata
+views never recover it. Push remains visibly unavailable.
 
 ## Truth conventions
 

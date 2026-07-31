@@ -33,6 +33,7 @@ output is redirected away from the console and removed with the test state.
 | `api` | First boot, authentication, CSRF/origin checks, authorization, invites, persistence |
 | `runner` | Unix-socket framing, malformed/oversized input, duplicate IDs, timeouts |
 | `dogfood` | Fresh C6 claim, `cresix` project, peer, repo, schedule/run/deploy, runner dispatch, restart |
+| `git-cli` | Browser-issued CLI/Git credentials, real clone/fetch/ls-remote, class separation, restart, revocation |
 | `web` | Frontend unit/build, fixture regressions, and required real-backend headless journey |
 | `packaging` | Compose rendering and release-artifact sanity checks |
 

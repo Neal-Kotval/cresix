@@ -8,7 +8,7 @@ import {
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { fixtureBranches, fixtureInvites, fixtureJobs, fixturePeers, fixtureProject, fixtureProjects, fixtureSecrets, fixtureSession, runLog } from "./fixtures";
-import type { Invite, Job, Peer, ProjectDetail, ProjectSummary, Role, Run, Session, Workspace } from "./types";
+import type { CredentialMetadata, CredentialScope, CredentialType, Invite, Job, Peer, ProjectDetail, ProjectRemote, ProjectSummary, Role, Run, Session, Workspace } from "./types";
 
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 const navItems = [["overview", BookOpen, "Overview"], ["files", Code2, "Files"], ["branches", GitBranch, "Branches"], ["commits", GitCommit, "Commits"], ["pulls", GitPullRequest, "Pull requests"], ["deployments", Rocket, "Deployments"], ["jobs", Clock3, "Jobs"], ["runs", Play, "Runs"], ["secrets", KeyRound, "Secrets"], ["settings", Settings, "Settings"]] as const;
@@ -89,6 +89,7 @@ export function App() {
           : <ServerSettings />
           : session.workspaces.length === 0 ? session.serverAdministrator ? <CreateWorkspace /> : <NoWorkspace />
           : slug ? <ProjectPage project={project} workspaceName={session.workspaces[0]?.name} section={section ?? "overview"} go={go} setProject={setProject} notify={setNotice} preview={preview} serverAdministrator={session.serverAdministrator} />
+          : path === "/credentials" ? <Credentials notify={setNotice} />
           : path === "/new" || path === "/import" ? <CreateProject mode={path === "/import" ? "import" : "create"} go={go} workspace={session.workspaces[0]} />
           : <Dashboard session={session} projects={projects} go={go} />}
       </main>
@@ -123,7 +124,7 @@ function Sidebar({ go, path, projects, workspace, open, onClose, adminSurface, s
   const initials = (workspace?.name ?? "Workspace").split(" ").map((part) => part[0]).join("").slice(0, 2);
   return <><button className={`nav-scrim ${open ? "open" : ""}`} aria-label="Close navigation" onClick={onClose} /><aside className={`sidebar ${open ? "open" : ""}`} onClick={(event) => { if ((event.target as HTMLElement).closest("a")) onClose(); }}>
     <div className="workspace-switch"><span className="workspace-avatar">{adminSurface ? <Server size={16} /> : initials}</span><div><strong>{adminSurface ? "This C6 server" : workspace?.name ?? "Workspace"}</strong><small>{adminSurface ? "Installation authority" : workspace ? titleCase(workspace.role) : "Local session"}</small></div>{!adminSurface && <ChevronDown size={14} />}</div>
-    {adminSurface ? <nav aria-label="C6 Admin"><NavLink to="/admin" go={go} className={path === "/admin" ? "active" : ""}><Activity size={16} />Overview</NavLink><NavLink to="/admin/access" go={go} className={path === "/admin/access" ? "active" : ""}><ShieldCheck size={16} />Access & invitations</NavLink></nav> : <><nav aria-label="C6 Hub"><NavLink to="/" go={go} className={path === "/" ? "active" : ""}><Box size={16} />Projects</NavLink></nav><div className="sidebar-label"><span>Recent software</span><NavLink to="/new" go={go} className="mini-icon" ><Plus size={14} /></NavLink></div><nav className="recent-projects" aria-label="Recent projects">{projects.slice(0, 4).map((item) => <NavLink key={item.id} to={`/projects/${item.slug}`} go={go} className={path.includes(`/projects/${item.slug}`) ? "active" : ""}><Braces size={15} /><span>{item.name}</span>{item.publishedSha && <i />}</NavLink>)}</nav></>}
+    {adminSurface ? <nav aria-label="C6 Admin"><NavLink to="/admin" go={go} className={path === "/admin" ? "active" : ""}><Activity size={16} />Overview</NavLink><NavLink to="/admin/access" go={go} className={path === "/admin/access" ? "active" : ""}><ShieldCheck size={16} />Access & invitations</NavLink></nav> : <><nav aria-label="C6 Hub"><NavLink to="/" go={go} className={path === "/" ? "active" : ""}><Box size={16} />Projects</NavLink><NavLink to="/credentials" go={go} className={path === "/credentials" ? "active" : ""}><KeyRound size={16} />Credentials</NavLink></nav><div className="sidebar-label"><span>Recent software</span><NavLink to="/new" go={go} className="mini-icon" ><Plus size={14} /></NavLink></div><nav className="recent-projects" aria-label="Recent projects">{projects.slice(0, 4).map((item) => <NavLink key={item.id} to={`/projects/${item.slug}`} go={go} className={path.includes(`/projects/${item.slug}`) ? "active" : ""}><Braces size={15} /><span>{item.name}</span>{item.publishedSha && <i />}</NavLink>)}</nav></>}
     <div className="sidebar-foot">{adminSurface ? <><LockKeyhole size={15} /><span>Administrator only</span></> : <><Users size={15} /><span>{serverAdministrator ? "Admin access available" : "Workspace access"}</span></>}</div>
   </aside></>;
 }
@@ -138,6 +139,96 @@ function Dashboard({ session, projects, go }: { session: Session; projects: Proj
     {shown.length ? <section className="project-list">{shown.map((item) => <article key={item.id} className="project-row"><NavLink className="project-main" to={`/projects/${item.slug}`} go={go}><span className="project-glyph"><Braces size={20} /></span><div><h2>{item.name}</h2><p>{item.description}</p><small><GitBranch size={12} />{item.defaultBranch} · <code>{shortSha(item.headSha)}</code> · updated {relativeTime(item.updatedAt)}</small></div></NavLink><div className="project-state"><span className="status neutral"><i />Repository ready</span></div></article>)}</section>
       : <EmptyState icon={Search} title="No projects match" body="Try another name or clear the filter." action={<button className="button secondary" onClick={() => setQuery("")}>Clear filter</button>} />}
   </div>;
+}
+
+const dateInputValue = (days: number) => {
+  const value = new Date();
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+};
+
+async function copyText(value: string) {
+  if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable in this browser.");
+  await navigator.clipboard.writeText(value);
+}
+
+function Credentials({ notify }: { notify: (message: string) => void }) {
+  const [credentials, setCredentials] = useState<CredentialMetadata[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [credentialType, setCredentialType] = useState<CredentialType>("cli");
+  const [label, setLabel] = useState("");
+  const [expiresOn, setExpiresOn] = useState(dateInputValue(30));
+  const [scopes, setScopes] = useState<CredentialScope[]>(["api:read"]);
+  const [revealed, setRevealed] = useState<{ credential: CredentialMetadata; token: string }>();
+  const [confirmingRevoke, setConfirmingRevoke] = useState<string>();
+  const [revoking, setRevoking] = useState<string>();
+
+  useEffect(() => {
+    let active = true;
+    api.credentials().then((items) => active && setCredentials(items)).catch((caught: Error) => active && setError(caught.message)).finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  function chooseType(next: CredentialType) {
+    setCredentialType(next);
+    setScopes(next === "cli" ? ["api:read"] : ["git:read"]);
+  }
+  function toggleScope(scope: CredentialScope) {
+    setScopes((current) => current.includes(scope) ? current.filter((item) => item !== scope) : [...current, scope]);
+  }
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    setError(""); setCreating(true);
+    try {
+      const result = await api.createCredential({ credentialType, label: label.trim(), expiresAt: new Date(`${expiresOn}T23:59:59.000Z`).toISOString(), scopes });
+      setCredentials((current) => [result.credential, ...current]);
+      setRevealed(result);
+      setLabel("");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Credential could not be created."); }
+    finally { setCreating(false); }
+  }
+  async function revoke(id: string) {
+    setRevoking(id); setError("");
+    try {
+      await api.revokeCredential(id);
+      setCredentials((current) => current.map((item) => item.id === id ? { ...item, revokedAt: new Date().toISOString() } : item));
+      setConfirmingRevoke(undefined);
+      notify("Credential revoked. It can no longer authenticate new requests.");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Credential could not be revoked."); }
+    finally { setRevoking(undefined); }
+  }
+  return <div className="page-pad credentials-page stack">
+    <header className="page-title"><div><p className="kicker">Peer settings</p><h1>CLI & Git credentials</h1><p>Create expiring credentials for this device, then revoke them when they are no longer needed.</p></div></header>
+    <section className="security-callout credential-boundary"><ShieldCheck size={18} /><div><strong>Separate credentials, live permissions</strong><p>CLI tokens cannot authenticate Git, and Git tokens cannot authenticate the API. Your current workspace role is checked on every request.</p></div></section>
+    <div className="credential-grid">
+      <form className="panel credential-form" onSubmit={create}>
+        <PanelHead icon={KeyRound} title="Create a credential" />
+        <div className="credential-form-body">
+          <fieldset><legend>Use</legend><div className="credential-kind-grid"><label className={credentialType === "cli" ? "selected" : ""}><input type="radio" name="credential-type" value="cli" checked={credentialType === "cli"} onChange={() => chooseType("cli")} /><TerminalSquare size={17} /><span><strong>C6 CLI</strong><small>Project discovery and C6 API commands</small></span></label><label className={credentialType === "git" ? "selected" : ""}><input type="radio" name="credential-type" value="git" checked={credentialType === "git"} onChange={() => chooseType("git")} /><GitBranch size={17} /><span><strong>Git HTTPS</strong><small>Clone, fetch, and pull only</small></span></label></div></fieldset>
+          <label className="field">Label<input required minLength={1} maxLength={80} value={label} onChange={(event) => setLabel(event.target.value)} placeholder={credentialType === "cli" ? "Laptop CLI" : "Laptop Git"} /></label>
+          <label className="field">Expires<input required type="date" min={dateInputValue(1)} max={dateInputValue(90)} value={expiresOn} onChange={(event) => setExpiresOn(event.target.value)} /></label>
+          <fieldset><legend>Scopes</legend>{credentialType === "cli" ? <div className="scope-list"><label><input type="checkbox" checked={scopes.includes("api:read")} onChange={() => toggleScope("api:read")} /><span><code>api:read</code><small>Inspect your accessible projects and identity</small></span></label><label><input type="checkbox" checked={scopes.includes("api:write")} onChange={() => toggleScope("api:write")} /><span><code>api:write</code><small>Perform supported non-admin C6 operations</small></span></label></div> : <div className="scope-list"><label><input type="checkbox" checked readOnly /><span><code>git:read</code><small>Clone, fetch, and pull visible repositories</small></span></label><div className="scope-unavailable"><LockKeyhole size={14} /><span><code>git:write</code> is unavailable until protected push ships.</span></div></div>}</fieldset>
+          {error && <p className="form-error" role="alert">{error}</p>}
+        </div>
+        <div className="form-actions"><button className="button primary" disabled={creating || !label.trim() || scopes.length === 0}>{creating ? "Creating…" : "Create credential"}</button></div>
+      </form>
+      <section className="panel credential-list-panel"><PanelHead icon={History} title="Your credentials" />{loading ? <div className="credential-state" role="status">Loading credential metadata…</div> : credentials.length ? <div className="credential-list">{credentials.map((credential) => { const expired = new Date(credential.expiresAt).getTime() <= Date.now(); const inactive = Boolean(credential.revokedAt) || expired; return <article key={credential.id} className={`credential-row ${inactive ? "inactive" : ""}`}><span className="round-icon">{credential.credentialType === "cli" ? <TerminalSquare size={15} /> : <GitBranch size={15} />}</span><div><strong>{credential.label}{credential.revokedAt ? <span className="status neutral">Revoked</span> : expired ? <span className="status neutral">Expired</span> : null}</strong><small>{credential.credentialType === "cli" ? "C6 CLI" : "Git HTTPS"} · expires {new Date(credential.expiresAt).toLocaleDateString()}</small><div className="credential-scopes">{credential.scopes.map((scope) => <code key={scope}>{scope}</code>)}</div>{credential.lastUsedAt && <small>Last used {relativeTime(credential.lastUsedAt)}</small>}</div>{!inactive && (confirmingRevoke === credential.id ? <div className="revoke-actions"><button type="button" className="button secondary compact" onClick={() => setConfirmingRevoke(undefined)}>Cancel</button><button type="button" className="button danger compact" onClick={() => revoke(credential.id)} disabled={revoking === credential.id}>{revoking === credential.id ? "Revoking…" : "Confirm revoke"}</button></div> : <button className="icon-only" aria-label={`Revoke ${credential.label}`} onClick={() => setConfirmingRevoke(credential.id)}><Trash2 size={15} /></button>)}</article>; })}</div> : <EmptyState icon={KeyRound} title="No credentials yet" body="Create a separate, expiring credential when you configure the CLI or Git." />}</section>
+    </div>
+    {revealed && <CredentialReveal value={revealed} onClose={() => setRevealed(undefined)} notify={notify} />}
+  </div>;
+}
+
+function CredentialReveal({ value, onClose, notify }: { value: { credential: CredentialMetadata; token: string }; onClose: () => void; notify: (message: string) => void }) {
+  const [copyError, setCopyError] = useState("");
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onClose]);
+  async function copy() { setCopyError(""); try { await copyText(value.token); notify("Credential copied. Store it in your credential manager now."); } catch (caught) { setCopyError(caught instanceof Error ? caught.message : "Clipboard access is unavailable."); } }
+  return <div className="dialog-layer" role="presentation"><section className="dialog credential-reveal" role="dialog" aria-modal="true" aria-labelledby="credential-reveal-title"><button className="dialog-close" aria-label="Dismiss credential" onClick={onClose}><X size={17} /></button><span className="dialog-icon"><KeyRound size={21} /></span><p className="kicker">Shown once</p><h2 id="credential-reveal-title">Copy {value.credential.label} now</h2><p>C6 stores only a verifier. After you dismiss this window, this credential cannot be shown again.</p><label>Credential<input autoFocus className="credential-secret" readOnly value={value.token} onFocus={(event) => event.currentTarget.select()} aria-describedby="credential-copy-note" /></label><p id="credential-copy-note" className="credential-warning"><CircleAlert size={14} />Do not put this value in a clone URL, command argument, or Git configuration.</p>{copyError && <p className="form-error" role="alert">{copyError} Select the value above and copy it manually.</p>}<div className="dialog-actions"><button className="button secondary" onClick={onClose}>I have stored it</button><button className="button primary" onClick={copy}><Copy size={14} />Copy credential</button></div></section></div>;
 }
 
 function ProjectPage({ project, workspaceName, section, go, setProject, notify, preview, serverAdministrator }: { project: ProjectDetail; workspaceName?: string; section: string; go: (to: string) => void; setProject: (project: ProjectDetail) => void; notify: (message: string) => void; preview: boolean; serverAdministrator: boolean }) {
@@ -171,7 +262,25 @@ function Overview({ project, go, notify }: { project: ProjectDetail; go: (to: st
     <section className="panel"><PanelHead icon={History} title="Recent commits" action="View all" onAction={() => go(`/projects/${project.slug}/commits`)} /><RevisionList revisions={project.revisions.slice(0, 3)} /></section>
   </div><aside className="side-column"><section className="side-section"><div className="side-heading"><span>Deployment metadata</span><span className="status neutral">No hosting</span></div><div className="deploy-visual"><FileCode2 size={24} /><span /><ListTodo size={19} /></div><dl className="facts"><div><dt>Revision</dt><dd><code>{shortSha(production?.revisionSha)}</code></dd></div><div><dt>Recorded</dt><dd>{relativeTime(production?.createdAt)}</dd></div><div><dt>Execution</dt><dd>Unavailable</dd></div></dl><button className="button secondary wide" disabled><Rocket size={14} />Hosting planned</button></section>
     <section className="side-section"><div className="side-heading"><span>Software</span><MoreHorizontal size={15} /></div><Resource icon={Box} name="web" detail="Web · healthy" tone="green" /><Resource icon={Clock3} name="sync-activity" detail="Every hour" /><Resource icon={Sparkles} name="friday-notes" detail="Agent · Fridays" tone="orange" /><Resource icon={Database} name="postgres" detail="18 MB" /></section>
-    <section className="side-section"><div className="side-heading"><span>Git network clone</span><span className="status neutral">Planned</span></div><div className="clone"><span>Repository browsing is local-only in this release.</span></div></section></aside></div></>;
+    <ProjectRemoteCard project={project} notify={notify} /></aside></div></>;
+}
+
+function ProjectRemoteCard({ project, notify }: { project: ProjectDetail; notify: (message: string) => void }) {
+  const [remote, setRemote] = useState<ProjectRemote>();
+  const [error, setError] = useState("");
+  const [copyError, setCopyError] = useState("");
+  useEffect(() => {
+    let active = true;
+    api.projectRemote(project.id).then((value) => active && setRemote(value)).catch((caught: Error) => active && setError(caught.message));
+    return () => { active = false; };
+  }, [project.id]);
+  async function copy() {
+    if (!remote) return;
+    setCopyError("");
+    try { await copyText(remote.cloneUrl); notify("Read-only clone URL copied."); }
+    catch (caught) { setCopyError(caught instanceof Error ? caught.message : "Clipboard access is unavailable."); }
+  }
+  return <section className="side-section remote-card"><div className="side-heading"><span>Git HTTPS</span>{remote?.capabilities.fetch ? <span className="status success">Read only</span> : <span className="status neutral">Checking</span>}</div>{remote ? <><div className="clone-url"><code>{remote.cloneUrl}</code><button aria-label="Copy read-only clone URL" onClick={copy}><Copy size={14} /></button></div><p>Use a Git credential with normal <code>git clone</code>, <code>fetch</code>, or <code>pull</code>. The credential is never part of this URL.</p><div className="remote-capabilities"><span><Check size={13} />Fetch available</span><span className="unavailable"><LockKeyhole size={13} />Push unavailable</span></div>{copyError && <small className="form-error" role="alert">{copyError} Select the URL and copy it manually.</small>}</> : error ? <p role="status">Clone details are unavailable: {error}</p> : <p role="status">Loading the canonical clone URL…</p>}</section>;
 }
 
 function Files({ project }: { project: ProjectDetail }) {

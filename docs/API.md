@@ -25,11 +25,13 @@ responses receive content-type, referrer, permissions, and CSP headers.
 | Enrollment | `POST /bootstrap/claim`, `POST /invites/redeem` | Issue cookie sessions |
 | Session | `GET|DELETE /session` | Renew/read or revoke current session |
 | Trust admin | `GET|POST /invites`, `GET /peers`, `DELETE /peers/{id}`, `GET /devices`, `DELETE /devices/{id}`, `GET /sessions`, `DELETE /sessions/{id}` | Server-administrator only |
+| Credentials | `GET|POST /credentials`, `DELETE /credentials/{id}` | Current peer lists/issues/revokes expiring CLI or read-only Git credentials; plaintext shown once |
+| CLI | `GET /cli/whoami` | `api:read` Bearer identity and workspace summary |
 | Workspaces | `GET|POST /workspaces`, `PUT|DELETE /workspaces/{id}` | Durable metadata; delete deferred |
 | Projects | `GET|POST /projects`, `GET|PUT|DELETE /projects/{id}` | Durable metadata and seeded Git; delete deferred |
 | Collaboration | `GET|POST /projects/{id}/pull-requests` | Persist/read PR records; merge deferred |
 | Runtime metadata | `GET|POST` project `deployments`, `runs`, `schedules`, `secrets` | Recorded intent; schedules validated; no dispatch |
-| Repository | project `repository/branches`, `commits`, `tree`, `files/{path}` | Bounded reads from local bare Git |
+| Repository | project `repository/branches`, `commits`, `tree`, `files/{path}`, `remote` | Bounded JSON reads and credential-free canonical clone URL/capabilities |
 | Audit | `GET /audit` | Latest installation audit records, administrator only |
 | Manifest | `POST /manifest/validate` | Authenticated parse/validation without execution; exact Origin, no CSRF |
 
@@ -51,11 +53,41 @@ JSON uses camel case unless shown otherwise:
 | Create schedule | `job`, `cron`, `timezone`; optional `concurrency` (only `forbid`), `enabled` |
 | Create secret metadata | `name` using uppercase letters, digits, and underscore |
 | Validate manifest | `source` containing the TOML string |
+| Create credential | `type` (`cli` or `git`), `label`, `scopes`; optional `expiresAt`, `restriction.workspaceId`, `restriction.projectId` |
 
 Resource paths use server UUIDs, not workspace/project slugs. Repository commit,
 tree, and file reads accept `revision` (default `main`); commit queries also
 accept `limit`, and tree queries accept `recursive`. Values are still bounded
 and validated by the Git layer.
+
+Credential expiry defaults to 30 days and may not exceed 90 days. CLI
+credentials accept `api:read` and `api:write`; the currently implemented CLI
+uses read endpoints. Git credentials accept only `git:read`. `git:write` and
+push are not available. Token type, scope, current peer/device state, live
+workspace role, expiry/revocation, and optional resource restriction are all
+checked at request time. No credential grants server-administrator authority.
+
+## Non-browser authentication
+
+The CLI uses `Authorization: Bearer c6c_v1_...`. Bearer requests do not use
+CSRF; if they include `Origin`, it must still match. The Git router is outside
+browser Origin/CSRF middleware and accepts only Basic username `c6` plus a
+`c6g_v1_...` password. Mixed cookies and Authorization credentials fail.
+
+Git smart HTTP is not JSON and is intentionally narrow:
+
+```text
+GET  /git/{workspace}/{project}.git/info/refs?service=git-upload-pack
+POST /git/{workspace}/{project}.git/git-upload-pack
+```
+
+Receive-pack/push is not routed or advertised. See [Git](GIT.md) and
+[CLI](CLI.md).
+
+Read-only Git transport is disabled unless the operator sets
+`C6_GIT_HTTP_ENABLED=1`. `/projects/{id}/remote` truthfully reports
+`capabilities.fetch: false` while disabled and always reports `push: false` in
+this phase.
 
 ## Cookie and CSRF flow
 

@@ -18,7 +18,7 @@ qa_run "Rust formatting" cargo fmt --all -- --check
 qa_run "Rust component regressions" cargo test --workspace --all-targets
 qa_run "Rust lint policy" cargo clippy --workspace --all-targets -- -D warnings
 
-qa_run "Acceptance process binaries" cargo build -p c6-server -p c6-runner
+qa_run "Acceptance process binaries" cargo build -p c6-server -p c6-runner -p c6-cli
 
 qa_heading "Real-process API regressions"
 python3 "$QA_ROOT/tests/api_regression.py"
@@ -28,6 +28,9 @@ python3 "$QA_ROOT/tests/runner_regression.py"
 
 qa_heading "C6-on-C6 durable dogfood journey"
 python3 "$QA_ROOT/tests/dogfood.py"
+
+qa_heading "Authenticated Git and CLI dogfood journey"
+python3 "$QA_ROOT/tests/git_cli_regression.py"
 
 qa_heading "Frontend unit regressions"
 npm --prefix web test -- --run

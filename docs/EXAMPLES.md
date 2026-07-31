@@ -30,3 +30,10 @@ placeholder commands with repository-relative paths, retain explicit resource
 budgets/timezones, and commit dependency lockfiles. Never add secret values.
 The current C6 UI/API can validate and record the declaration; running it is a
 future capability.
+
+For agent automation, treat example manifests as reviewable declarations, not
+permissions or runnable prompts. An agent may use current CLI `--json` output to
+discover the project, but C6 does not yet poll events, dispatch the declared
+job, resolve a secret, start Docker, or create a proposal branch. The intended
+runtime flow is documented separately in the
+[agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md).

@@ -23,8 +23,10 @@ volume also contains the mode-`0600` runner protocol key.
 
 SQLite contains settings, peers, devices, sessions, invitations, workspaces,
 memberships, projects, PR records, deployment/run/schedule records, secret
-metadata, and audit events. It runs with WAL and foreign keys enabled. Embedded
-idempotent migrations run at startup; there is no separate migration command.
+metadata, credential metadata/verifiers, and audit events. Plaintext CLI/Git
+tokens are returned once and are not stored by the server. SQLite runs with
+WAL and foreign keys enabled. Embedded idempotent migrations run at startup;
+there is no separate migration command.
 
 Git remains authoritative for branches, commits, trees, and file bytes. SQL
 stores repository identity and selected head metadata, not duplicated objects.

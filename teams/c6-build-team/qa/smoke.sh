@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+trap 'echo "c6-build-team: smoke assertion failed near line $LINENO" >&2' ERR
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 port="${C6_QA_PORT:-18787}"
 base_url="http://127.0.0.1:$port"
@@ -134,6 +136,8 @@ project_code="$(printf '%s' "$project_payload" | curl --silent --output "$body_f
 [[ "$project_code" == "201" ]]
 project_id="$(sed -n 's/.*"id":"\([^"]*\)".*/\1/p' "$body_file")"
 [[ -n "$project_id" ]]
+project_head="$(sed -n 's/.*"headSha":"\([^"]*\)".*/\1/p' "$body_file")"
+[[ "$project_head" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
 
 curl --fail --silent --cookie "$cookie_jar" \
   "$base_url/api/v1/projects/$project_id/repository/branches" | grep -q '"name":"main"'
@@ -142,13 +146,19 @@ curl --fail --silent --cookie "$cookie_jar" \
 curl --fail --silent --cookie "$cookie_jar" \
   "$base_url/api/v1/projects/$project_id/repository/tree?revision=main&recursive=true" | grep -q '"path":"c6.toml"'
 
-run_code="$(printf '%s' '{"job":"dogfood","kind":"command","revisionSha":"HEAD"}' | curl --silent \
+run_payload="$(printf '{"job":"dogfood","kind":"command","revisionSha":"%s"}' "$project_head")"
+run_code="$(printf '%s' "$run_payload" | curl --silent \
   --output "$body_file" --write-out '%{http_code}' --cookie "$cookie_jar" \
   -X POST "$base_url/api/v1/projects/$project_id/runs" \
   -H "origin: $base_url" -H "x-c6-csrf: $csrf_token" \
   -H 'content-type: application/json' --data-binary @-)"
-[[ "$run_code" == "202" ]]
-grep -q '"status":"queued"' "$body_file"
+[[ "$run_code" == "201" ]]
+if ! grep -q '"status":"recorded"' "$body_file" ||
+  ! grep -q '"dispatchAvailable":false' "$body_file"; then
+  echo "c6-build-team: run intent response did not expose the non-dispatch state" >&2
+  sed -n '1,3p' "$body_file" >&2
+  exit 1
+fi
 
 secret_code="$(printf '%s' '{"value":"must-not-be-accepted"}' | curl --silent --output "$body_file" --write-out '%{http_code}' \
   --cookie "$cookie_jar" -X PUT "$base_url/api/v1/projects/$project_id/secrets/API_KEY/value" \

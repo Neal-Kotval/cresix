@@ -8,14 +8,17 @@ use std::{
 use anyhow::{Context, bail};
 use axum::{
     Json, Router,
-    body::Body,
-    extract::{DefaultBodyLimit, Path as AxumPath, Query, State},
-    http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header},
+    body::{Body, Bytes},
+    extract::{DefaultBodyLimit, Path as AxumPath, Query, RawQuery, State},
+    http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{any, delete, get, post, put},
 };
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{
+    Engine,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
 use chrono::{DateTime, Duration, Utc};
 use rand::RngCore;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -38,6 +41,7 @@ const SESSION_HOURS: i64 = 24 * 30;
 struct AppState {
     db: Arc<Mutex<Connection>>,
     git: c6_git::GitStore,
+    git_http: Option<c6_git::SmartHttpBackend>,
     git_root: PathBuf,
     bootstrap_token_path: PathBuf,
     public_base_url: String,
@@ -97,6 +101,15 @@ struct Principal {
     display_name: String,
     session_id: String,
     csrf_hash: String,
+    device_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct TokenPrincipal {
+    user_id: String,
+    display_name: String,
+    workspace_id: Option<String>,
+    project_id: Option<String>,
 }
 
 type InviteRow = (String, String, Option<String>, String, Option<String>);
@@ -248,6 +261,16 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn open_state(data_dir: &Path, public_base_url: String) -> anyhow::Result<AppState> {
+    let git_http_enabled =
+        parse_git_http_enabled(std::env::var("C6_GIT_HTTP_ENABLED").ok().as_deref())?;
+    open_state_with_git_http(data_dir, public_base_url, git_http_enabled)
+}
+
+fn open_state_with_git_http(
+    data_dir: &Path,
+    public_base_url: String,
+    git_http_enabled: bool,
+) -> anyhow::Result<AppState> {
     prepare_data_dir(data_dir)?;
     let mut conn = Connection::open(data_dir.join("c6.sqlite3")).context("open C6 database")?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
@@ -258,17 +281,34 @@ fn open_state(data_dir: &Path, public_base_url: String) -> anyhow::Result<AppSta
     let secure_cookies = public_base_url.starts_with("https://");
     let git_root = data_dir.join("git");
     let git = c6_git::GitStore::new(&git_root).context("open C6 Git store")?;
+    let git_http = if git_http_enabled {
+        Some(
+            c6_git::SmartHttpBackend::from_environment(c6_git::SmartHttpLimits::default())
+                .context("C6_GIT_HTTP_ENABLED is set but the Git HTTP backend is unavailable")?,
+        )
+    } else {
+        None
+    };
     let git_root = git_root
         .canonicalize()
         .context("canonicalize C6 Git store")?;
     Ok(AppState {
         db: Arc::new(Mutex::new(conn)),
         git,
+        git_http,
         git_root,
         bootstrap_token_path: data_dir.join("bootstrap-token"),
         public_base_url,
         secure_cookies,
     })
+}
+
+fn parse_git_http_enabled(value: Option<&str>) -> anyhow::Result<bool> {
+    match value {
+        None | Some("0" | "false") => Ok(false),
+        Some("1" | "true") => Ok(true),
+        Some(_) => bail!("C6_GIT_HTTP_ENABLED must be exactly true, false, 1, or 0"),
+    }
 }
 
 fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
@@ -288,7 +328,27 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
     CREATE TABLE IF NOT EXISTS schedules(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, job TEXT NOT NULL, cron TEXT NOT NULL, timezone TEXT NOT NULL, concurrency TEXT NOT NULL, enabled INTEGER NOT NULL, created_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS secret_metadata(id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, name TEXT NOT NULL, created_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL, UNIQUE(project_id,name));
     CREATE TABLE IF NOT EXISTS audit_events(id TEXT PRIMARY KEY, actor_id TEXT, action TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT, details TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS credentials(
+        id TEXT PRIMARY KEY,
+        public_id TEXT NOT NULL UNIQUE,
+        verifier TEXT NOT NULL,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        device_id TEXT REFERENCES devices(id),
+        label TEXT NOT NULL,
+        credential_type TEXT NOT NULL CHECK(credential_type IN ('cli','git')),
+        scopes TEXT NOT NULL,
+        workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        last_used_at TEXT,
+        revoked_at TEXT,
+        CHECK(length(label) BETWEEN 1 AND 80),
+        CHECK(project_id IS NULL OR workspace_id IS NOT NULL)
+    );
     CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_credentials_public_id ON credentials(public_id);
+    CREATE INDEX IF NOT EXISTS idx_credentials_user ON credentials(user_id,created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at DESC);
     COMMIT;
     "#)?;
@@ -371,7 +431,7 @@ fn backfill_server_owner(conn: &mut Connection) -> anyhow::Result<()> {
 }
 
 fn app(state: AppState) -> Router {
-    let api = Router::new()
+    let browser_api = Router::new()
         .route("/healthz", get(health))
         .route("/api/v1/status", get(status))
         .route("/api/v1/bootstrap/claim", post(claim))
@@ -389,6 +449,12 @@ fn app(state: AppState) -> Router {
         .route("/api/v1/sessions", get(list_sessions))
         .route("/api/v1/sessions/{id}", delete(revoke_session))
         .route(
+            "/api/v1/credentials",
+            get(list_credentials).post(create_credential),
+        )
+        .route("/api/v1/credentials/{id}", delete(revoke_credential))
+        .route("/api/v1/cli/whoami", get(cli_whoami))
+        .route(
             "/api/v1/workspaces",
             get(list_workspaces).post(create_workspace),
         )
@@ -401,6 +467,7 @@ fn app(state: AppState) -> Router {
             "/api/v1/projects/{id}",
             get(get_project).put(update_project).delete(delete_project),
         )
+        .route("/api/v1/projects/{id}/remote", get(project_remote))
         .route(
             "/api/v1/projects/{id}/pull-requests",
             get(list_prs).post(create_pr),
@@ -439,16 +506,283 @@ fn app(state: AppState) -> Router {
         .route("/api", any(api_not_found))
         .route("/api/", any(api_not_found))
         .route("/api/{*path}", any(api_not_found))
-        .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state.clone(), same_origin))
-        .layer(middleware::from_fn(security_headers))
-        .layer(DefaultBodyLimit::max(64 * 1024))
-        .layer(TraceLayer::new_for_http());
+        .layer(DefaultBodyLimit::max(64 * 1024));
+    let git_api = Router::new()
+        .route("/{workspace}/{repository}/info/refs", get(git_info_refs))
+        .route(
+            "/{workspace}/{repository}/git-upload-pack",
+            post(git_upload_pack),
+        )
+        .fallback(git_not_found)
+        .layer(DefaultBodyLimit::max(16 * 1024 * 1024));
     let web_dist =
         PathBuf::from(std::env::var("C6_WEB_DIST").unwrap_or_else(|_| "web/dist".into()));
-    api.fallback_service(
-        ServeDir::new(&web_dist).fallback(ServeFile::new(web_dist.join("index.html"))),
+    Router::new()
+        .merge(browser_api)
+        .nest("/git", git_api)
+        .fallback_service(
+            ServeDir::new(&web_dist).fallback(ServeFile::new(web_dist.join("index.html"))),
+        )
+        .with_state(state)
+        .layer(middleware::from_fn(security_headers))
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &Request<Body>| {
+                // URI, query, and headers are deliberately excluded: all are
+                // attacker-controlled and may contain accidentally supplied secrets.
+                tracing::info_span!("http_request", method = %request.method())
+            }),
+        )
+}
+
+#[derive(Debug)]
+struct GitHttpError(StatusCode, &'static str);
+
+impl GitHttpError {
+    fn unauthenticated() -> Self {
+        Self(StatusCode::UNAUTHORIZED, "authentication required")
+    }
+}
+
+impl IntoResponse for GitHttpError {
+    fn into_response(self) -> Response {
+        let mut response = (self.0, self.1).into_response();
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        if self.0 == StatusCode::UNAUTHORIZED {
+            response.headers_mut().insert(
+                header::WWW_AUTHENTICATE,
+                HeaderValue::from_static("Basic realm=\"C6 Git\", charset=\"UTF-8\""),
+            );
+        }
+        response
+    }
+}
+
+async fn git_not_found() -> GitHttpError {
+    GitHttpError(StatusCode::NOT_FOUND, "Git endpoint not found")
+}
+
+async fn git_info_refs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath((workspace, repository_name)): AxumPath<(String, String)>,
+    RawQuery(query): RawQuery,
+) -> Result<Response, GitHttpError> {
+    let principal = authenticate_git(&state, &headers)?;
+    let project = git_project_slug(&repository_name)?;
+    let (project_id, repository) =
+        authorize_git_project(&state, &principal, &workspace, project, "reader")?;
+    let backend = state.git_http.clone().ok_or(GitHttpError(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Git transport unavailable",
+    ))?;
+    let protocol = git_protocol_header(&headers)?;
+    let query = query.ok_or(GitHttpError(
+        StatusCode::BAD_REQUEST,
+        "missing Git service query",
+    ))?;
+    let actor = principal.user_id.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        backend.advertise(&repository, &query, protocol.as_deref(), &actor)
+    })
+    .await
+    .map_err(|_| GitHttpError(StatusCode::INTERNAL_SERVER_ERROR, "Git request failed"))?
+    .map_err(map_smart_http_error)?;
+    let _ = project_id;
+    smart_http_response(result)
+}
+
+async fn git_upload_pack(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath((workspace, repository_name)): AxumPath<(String, String)>,
+    RawQuery(query): RawQuery,
+    body: Bytes,
+) -> Result<Response, GitHttpError> {
+    let principal = authenticate_git(&state, &headers)?;
+    let project = git_project_slug(&repository_name)?;
+    let (_project_id, repository) =
+        authorize_git_project(&state, &principal, &workspace, project, "reader")?;
+    let backend = state.git_http.clone().ok_or(GitHttpError(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Git transport unavailable",
+    ))?;
+    let protocol = git_protocol_header(&headers)?;
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let actor = principal.user_id.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        backend.upload_pack(
+            &repository,
+            query.as_deref(),
+            content_type.as_deref(),
+            protocol.as_deref(),
+            &actor,
+            &body,
+        )
+    })
+    .await
+    .map_err(|_| GitHttpError(StatusCode::INTERNAL_SERVER_ERROR, "Git request failed"))?
+    .map_err(map_smart_http_error)?;
+    smart_http_response(result)
+}
+
+fn authenticate_git(state: &AppState, headers: &HeaderMap) -> Result<TokenPrincipal, GitHttpError> {
+    if cookie(headers, SESSION_COOKIE).is_some() {
+        return Err(GitHttpError::unauthenticated());
+    }
+    let values = headers.get_all(header::AUTHORIZATION);
+    if values.iter().count() != 1 {
+        return Err(GitHttpError::unauthenticated());
+    }
+    let value = values
+        .iter()
+        .next()
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(GitHttpError::unauthenticated)?;
+    if value.len() > 1024 {
+        return Err(GitHttpError::unauthenticated());
+    }
+    let encoded = value
+        .strip_prefix("Basic ")
+        .ok_or_else(GitHttpError::unauthenticated)?;
+    let decoded = STANDARD
+        .decode(encoded)
+        .map_err(|_| GitHttpError::unauthenticated())?;
+    let decoded = std::str::from_utf8(&decoded).map_err(|_| GitHttpError::unauthenticated())?;
+    let (username, token) = decoded
+        .split_once(':')
+        .ok_or_else(GitHttpError::unauthenticated)?;
+    if username != "c6" || token.contains(':') {
+        return Err(GitHttpError::unauthenticated());
+    }
+    authenticate_opaque_token(
+        state,
+        token,
+        c6_core::CredentialType::Git,
+        c6_core::CredentialScope::GitRead,
     )
+    .map_err(|error| match error.0 {
+        StatusCode::FORBIDDEN => GitHttpError(StatusCode::FORBIDDEN, "Git access forbidden"),
+        _ => GitHttpError::unauthenticated(),
+    })
+}
+
+fn git_project_slug(repository_name: &str) -> Result<&str, GitHttpError> {
+    repository_name
+        .strip_suffix(".git")
+        .filter(|slug| !slug.is_empty())
+        .ok_or(GitHttpError(StatusCode::NOT_FOUND, "project not found"))
+}
+
+fn authorize_git_project(
+    state: &AppState,
+    principal: &TokenPrincipal,
+    workspace_slug: &str,
+    project_slug: &str,
+    minimum_role: &str,
+) -> Result<(String, c6_git::Repository), GitHttpError> {
+    validate_slug(workspace_slug)
+        .map_err(|_| GitHttpError(StatusCode::NOT_FOUND, "project not found"))?;
+    validate_slug(project_slug)
+        .map_err(|_| GitHttpError(StatusCode::NOT_FOUND, "project not found"))?;
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| GitHttpError(StatusCode::INTERNAL_SERVER_ERROR, "Git request failed"))?;
+    let project: Option<(String, String, Option<String>)> = db
+        .query_row(
+            "SELECT p.id,w.id,m.role FROM projects p JOIN workspaces w ON w.id=p.workspace_id LEFT JOIN memberships m ON m.workspace_id=w.id AND m.user_id=?1 WHERE w.slug=?2 AND p.slug=?3",
+            params![principal.user_id, workspace_slug, project_slug],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|_| GitHttpError(StatusCode::INTERNAL_SERVER_ERROR, "Git request failed"))?;
+    let (project_id, workspace_id, role) =
+        project.ok_or(GitHttpError(StatusCode::NOT_FOUND, "project not found"))?;
+    let role = role.ok_or(GitHttpError(StatusCode::NOT_FOUND, "project not found"))?;
+    if principal
+        .workspace_id
+        .as_ref()
+        .is_some_and(|restricted| restricted != &workspace_id)
+        || principal
+            .project_id
+            .as_ref()
+            .is_some_and(|restricted| restricted != &project_id)
+    {
+        return Err(GitHttpError(StatusCode::NOT_FOUND, "project not found"));
+    }
+    if role_rank(&role) < role_rank(minimum_role) {
+        return Err(GitHttpError(StatusCode::FORBIDDEN, "Git access forbidden"));
+    }
+    drop(db);
+    let repository = state
+        .git
+        .open(&project_id)
+        .map_err(|_| GitHttpError(StatusCode::NOT_FOUND, "project not found"))?;
+    Ok((project_id, repository))
+}
+
+fn git_protocol_header(headers: &HeaderMap) -> Result<Option<String>, GitHttpError> {
+    if headers.get_all("git-protocol").iter().count() > 1 {
+        return Err(GitHttpError(
+            StatusCode::BAD_REQUEST,
+            "invalid Git-Protocol header",
+        ));
+    }
+    headers
+        .get("git-protocol")
+        .map(|value| {
+            value
+                .to_str()
+                .map(str::to_owned)
+                .map_err(|_| GitHttpError(StatusCode::BAD_REQUEST, "invalid Git-Protocol header"))
+        })
+        .transpose()
+}
+
+fn smart_http_response(result: c6_git::SmartHttpResponse) -> Result<Response, GitHttpError> {
+    let status = StatusCode::from_u16(result.status)
+        .map_err(|_| GitHttpError(StatusCode::INTERNAL_SERVER_ERROR, "invalid Git response"))?;
+    let mut response = (status, result.body).into_response();
+    for (name, value) in result.headers {
+        let name = HeaderName::try_from(name)
+            .map_err(|_| GitHttpError(StatusCode::INTERNAL_SERVER_ERROR, "invalid Git response"))?;
+        let value = HeaderValue::try_from(value)
+            .map_err(|_| GitHttpError(StatusCode::INTERNAL_SERVER_ERROR, "invalid Git response"))?;
+        response.headers_mut().insert(name, value);
+    }
+    Ok(response)
+}
+
+fn map_smart_http_error(error: c6_git::SmartHttpError) -> GitHttpError {
+    use c6_git::SmartHttpError;
+    match error {
+        SmartHttpError::InvalidRequest(_) => {
+            GitHttpError(StatusCode::BAD_REQUEST, "invalid Git request")
+        }
+        SmartHttpError::RequestTooLarge => {
+            GitHttpError(StatusCode::PAYLOAD_TOO_LARGE, "Git request too large")
+        }
+        SmartHttpError::Timeout => {
+            GitHttpError(StatusCode::GATEWAY_TIMEOUT, "Git request timed out")
+        }
+        SmartHttpError::Unavailable => {
+            GitHttpError(StatusCode::SERVICE_UNAVAILABLE, "Git transport unavailable")
+        }
+        SmartHttpError::InvalidRepository => {
+            GitHttpError(StatusCode::NOT_FOUND, "project not found")
+        }
+        SmartHttpError::ResponseTooLarge
+        | SmartHttpError::BackendFailed
+        | SmartHttpError::InvalidResponse => {
+            GitHttpError(StatusCode::INTERNAL_SERVER_ERROR, "Git request failed")
+        }
+    }
 }
 
 async fn same_origin(
@@ -456,6 +790,15 @@ async fn same_origin(
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, ApiError> {
+    let bearer = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("Bearer "));
+    if bearer {
+        validate_optional_origin(&state, request.headers())?;
+        return Ok(next.run(request).await);
+    }
     if request.method() != Method::GET
         && request.method() != Method::HEAD
         && request.method() != Method::OPTIONS
@@ -630,7 +973,7 @@ async fn status(State(state): State<AppState>) -> Result<Json<Value>, ApiError> 
         )
         .map_err(ApiError::internal)?;
     Ok(Json(
-        json!({"serverId":server_id,"claimed":claimed,"authentication":"invite_session"}),
+        json!({"serverId":server_id,"serverName":"C6","claimed":claimed,"authentication":"invite_session"}),
     ))
 }
 
@@ -1044,6 +1387,298 @@ async fn revoke_session(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn create_credential(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<c6_core::CreateCredentialRequest>,
+) -> Result<(StatusCode, Json<c6_core::CreateCredentialResponse>), ApiError> {
+    let principal = authenticate(&state, &headers, true)?;
+    let credential_type = input.credential_type.as_str();
+    let prefix = input.credential_type.token_prefix();
+    let device_uuid = principal
+        .device_id
+        .as_deref()
+        .map(Uuid::parse_str)
+        .transpose()
+        .map_err(ApiError::internal)?;
+    let user_uuid = Uuid::parse_str(&principal.user_id).map_err(ApiError::internal)?;
+    validate_credential_label(&input.label)?;
+    let mut scopes = input.scopes.clone();
+    scopes.sort();
+    scopes.dedup();
+    if scopes.is_empty()
+        || scopes
+            .iter()
+            .any(|scope| !input.credential_type.allowed_scopes().contains(scope))
+        || (input.credential_type == c6_core::CredentialType::Git
+            && scopes.contains(&c6_core::CredentialScope::GitWrite))
+    {
+        return Err(ApiError::bad("at least one valid scope is required"));
+    }
+    let created = Utc::now();
+    let expires = input.expires_at.unwrap_or(created + Duration::days(30));
+    if expires <= created || expires > created + Duration::days(90) {
+        return Err(ApiError::bad(
+            "expiresAt must be in the future and no more than 90 days away",
+        ));
+    }
+    let (workspace_id, project_id) =
+        validate_credential_restriction(&state, &principal.user_id, input.restriction.as_ref())?;
+
+    let id = Uuid::new_v4();
+    let id_string = id.to_string();
+    let public_id = random_public_id();
+    let secret = random_token();
+    let token = format!("{prefix}_{public_id}_{secret}");
+    let scopes_json = serde_json::to_string(&scopes).map_err(ApiError::internal)?;
+    let mut db = state.db.lock().map_err(ApiError::internal)?;
+    let tx = db.transaction().map_err(ApiError::internal)?;
+    tx.execute(
+        "INSERT INTO credentials(id,public_id,verifier,user_id,device_id,label,credential_type,scopes,workspace_id,project_id,created_at,expires_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+        params![
+            id_string,
+            public_id,
+            hash(&token),
+            principal.user_id,
+            principal.device_id,
+            input.label,
+            credential_type,
+            scopes_json,
+            workspace_id,
+            project_id,
+            created.to_rfc3339(),
+            expires.to_rfc3339(),
+        ],
+    )
+    .map_err(ApiError::internal)?;
+    audit(
+        &tx,
+        Some(&principal.user_id),
+        "credential.create",
+        "credential",
+        Some(&id_string),
+        json!({"credentialType":credential_type,"scopes":scopes}),
+    )?;
+    tx.commit().map_err(ApiError::internal)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(c6_core::CreateCredentialResponse {
+            credential: c6_core::CredentialMetadata {
+                id,
+                user_id: user_uuid,
+                device_id: device_uuid,
+                credential_type: input.credential_type,
+                label: input.label,
+                scopes,
+                restriction: input.restriction,
+                created_at: created,
+                expires_at: expires,
+                last_used_at: None,
+                revoked_at: None,
+            },
+            token,
+        }),
+    ))
+}
+
+async fn list_credentials(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<c6_core::CredentialListResponse>, ApiError> {
+    let principal = authenticate(&state, &headers, false)?;
+    let db = state.db.lock().map_err(ApiError::internal)?;
+    let mut statement = db
+        .prepare("SELECT id,device_id,label,credential_type,scopes,workspace_id,project_id,created_at,expires_at,last_used_at,revoked_at FROM credentials WHERE user_id=?1 ORDER BY created_at DESC LIMIT 200")
+        .map_err(ApiError::internal)?;
+    let rows = statement
+        .query_map([&principal.user_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
+            ))
+        })
+        .map_err(ApiError::internal)?;
+    let credentials = rows
+        .map(|result| {
+            let (
+                id,
+                device,
+                label,
+                kind,
+                scopes,
+                workspace,
+                project,
+                created,
+                expires,
+                used,
+                revoked,
+            ) = result.map_err(ApiError::internal)?;
+            let scopes: Vec<c6_core::CredentialScope> =
+                serde_json::from_str(&scopes).map_err(ApiError::internal)?;
+            let credential_type = kind
+                .parse::<c6_core::CredentialType>()
+                .map_err(ApiError::internal)?;
+            Ok(c6_core::CredentialMetadata {
+                id: Uuid::parse_str(&id).map_err(ApiError::internal)?,
+                user_id: Uuid::parse_str(&principal.user_id).map_err(ApiError::internal)?,
+                device_id: device
+                    .map(|value| Uuid::parse_str(&value).map_err(ApiError::internal))
+                    .transpose()?,
+                credential_type,
+                label,
+                scopes,
+                restriction: match workspace {
+                    Some(workspace_id) => Some(c6_core::CredentialResourceRestriction {
+                        workspace_id: Some(
+                            Uuid::parse_str(&workspace_id).map_err(ApiError::internal)?,
+                        ),
+                        project_id: project
+                            .map(|value| Uuid::parse_str(&value).map_err(ApiError::internal))
+                            .transpose()?,
+                    }),
+                    None => None,
+                },
+                created_at: parse_time(&created)?,
+                expires_at: parse_time(&expires)?,
+                last_used_at: used.as_deref().map(parse_time).transpose()?,
+                revoked_at: revoked.as_deref().map(parse_time).transpose()?,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    Ok(Json(c6_core::CredentialListResponse { credentials }))
+}
+
+async fn revoke_credential(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<StatusCode, ApiError> {
+    let principal = authenticate(&state, &headers, true)?;
+    let mut db = state.db.lock().map_err(ApiError::internal)?;
+    let tx = db.transaction().map_err(ApiError::internal)?;
+    let owned: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM credentials WHERE id=?1 AND user_id=?2)",
+            params![id, principal.user_id],
+            |row| row.get(0),
+        )
+        .map_err(ApiError::internal)?;
+    if !owned {
+        return Err(ApiError::not_found("credential"));
+    }
+    let revoked = now();
+    let changed = tx
+        .execute(
+            "UPDATE credentials SET revoked_at=?1 WHERE id=?2 AND user_id=?3 AND revoked_at IS NULL",
+            params![revoked, id, principal.user_id],
+        )
+        .map_err(ApiError::internal)?;
+    if changed != 0 {
+        audit(
+            &tx,
+            Some(&principal.user_id),
+            "credential.revoke",
+            "credential",
+            Some(&id),
+            json!({}),
+        )?;
+    }
+    tx.commit().map_err(ApiError::internal)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn cli_whoami(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    let principal = authenticate_bearer(&state, &headers, c6_core::CredentialScope::ApiRead)?;
+    let db = state.db.lock().map_err(ApiError::internal)?;
+    let server_id =
+        setting(&db, "server_id")?.ok_or_else(|| ApiError::internal("missing server id"))?;
+    let workspace_sql = "SELECT json_object('id',w.id,'slug',w.slug,'name',w.name,'role',m.role) FROM workspaces w JOIN memberships m ON m.workspace_id=w.id WHERE m.user_id=?1";
+    let workspaces = if let Some(workspace_id) = &principal.workspace_id {
+        query_json(
+            &db,
+            &format!("{workspace_sql} AND w.id=?2 ORDER BY w.name"),
+            params![principal.user_id, workspace_id],
+        )?
+    } else {
+        query_json(
+            &db,
+            &format!("{workspace_sql} ORDER BY w.name"),
+            [&principal.user_id],
+        )?
+    };
+    Ok(Json(json!({
+        "server":{"id":server_id,"name":"C6"},
+        "user":{"id":principal.user_id,"displayName":principal.display_name},
+        "workspaces":workspaces,
+    })))
+}
+
+async fn project_remote(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Result<Json<c6_core::ProjectRemoteResponse>, ApiError> {
+    let token_principal = if headers.contains_key(header::AUTHORIZATION) {
+        Some(authenticate_bearer(
+            &state,
+            &headers,
+            c6_core::CredentialScope::ApiRead,
+        )?)
+    } else {
+        None
+    };
+    let user_id = match &token_principal {
+        Some(principal) => principal.user_id.clone(),
+        None => authenticate(&state, &headers, false)?.user_id,
+    };
+    let db = state.db.lock().map_err(ApiError::internal)?;
+    let project: Option<(String, String, String)> = db
+        .query_row(
+            "SELECT w.id,w.slug,p.slug FROM projects p JOIN workspaces w ON w.id=p.workspace_id JOIN memberships m ON m.workspace_id=w.id WHERE p.id=?1 AND m.user_id=?2 AND CASE m.role WHEN 'reader' THEN 1 WHEN 'runner' THEN 2 WHEN 'contributor' THEN 3 WHEN 'maintainer' THEN 4 WHEN 'owner' THEN 5 ELSE 0 END >= 1",
+            params![id, user_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    let (workspace_id, workspace_slug, project_slug) =
+        project.ok_or_else(|| ApiError::not_found("project"))?;
+    if token_principal.as_ref().is_some_and(|principal| {
+        principal
+            .workspace_id
+            .as_ref()
+            .is_some_and(|restricted| restricted != &workspace_id)
+            || principal
+                .project_id
+                .as_ref()
+                .is_some_and(|restricted| restricted != &id)
+    }) {
+        return Err(ApiError::not_found("project"));
+    }
+    Ok(Json(c6_core::ProjectRemoteResponse {
+        project_id: Uuid::parse_str(&id).map_err(ApiError::internal)?,
+        clone_url: format!(
+            "{}/git/{}/{}.git",
+            state.public_base_url, workspace_slug, project_slug
+        ),
+        capabilities: c6_core::RemoteTransportCapabilities {
+            fetch: state.git_http.is_some(),
+            push: false,
+        },
+    }))
+}
+
 async fn list_workspaces(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1138,12 +1773,51 @@ async fn delete_workspace(
 async fn list_projects(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<Value>, ApiError> {
-    let p = authenticate(&state, &headers, false)?;
+) -> Result<Json<c6_core::CliProjectListResponse>, ApiError> {
+    let token_principal = if headers.contains_key(header::AUTHORIZATION) {
+        Some(authenticate_bearer(
+            &state,
+            &headers,
+            c6_core::CredentialScope::ApiRead,
+        )?)
+    } else {
+        None
+    };
+    let browser_user = if token_principal.is_none() {
+        Some(authenticate(&state, &headers, false)?.user_id)
+    } else {
+        None
+    };
     let db = state.db.lock().map_err(ApiError::internal)?;
-    Ok(Json(
-        json!({"projects":query_json(&db,"SELECT json_object('id',p.id,'workspaceId',p.workspace_id,'slug',p.slug,'name',p.name,'description',p.description,'defaultBranch',p.default_branch,'headSha',p.head_sha,'publishedSha',p.published_sha,'role',m.role,'updatedAt',p.updated_at) FROM projects p JOIN memberships m ON m.workspace_id=p.workspace_id WHERE m.user_id=?1 ORDER BY p.updated_at DESC",[&p.user_id])?}),
-    ))
+    let base = "SELECT p.id,p.workspace_id,p.slug,p.name,p.description,p.default_branch,p.head_sha,p.published_sha,m.role,p.updated_at FROM projects p JOIN memberships m ON m.workspace_id=p.workspace_id WHERE m.user_id=?1";
+    let projects = if let Some(principal) = token_principal {
+        match (&principal.workspace_id, &principal.project_id) {
+            (_, Some(project)) => query_cli_projects(
+                &db,
+                &format!("{base} AND p.id=?2 ORDER BY p.updated_at DESC"),
+                params![principal.user_id, project],
+            )?,
+            (Some(workspace), None) => query_cli_projects(
+                &db,
+                &format!("{base} AND p.workspace_id=?2 ORDER BY p.updated_at DESC"),
+                params![principal.user_id, workspace],
+            )?,
+            (None, None) => query_cli_projects(
+                &db,
+                &format!("{base} ORDER BY p.updated_at DESC"),
+                [&principal.user_id],
+            )?,
+        }
+    } else {
+        query_cli_projects(
+            &db,
+            &format!("{base} ORDER BY p.updated_at DESC"),
+            [browser_user
+                .as_deref()
+                .expect("browser user was authenticated")],
+        )?
+    };
+    Ok(Json(c6_core::CliProjectListResponse { projects }))
 }
 async fn create_project(
     State(state): State<AppState>,
@@ -1674,9 +2348,12 @@ async fn validate_manifest(
 }
 
 fn authenticate(state: &AppState, headers: &HeaderMap, csrf: bool) -> Result<Principal, ApiError> {
+    if headers.contains_key(header::AUTHORIZATION) {
+        return Err(ApiError::unauthenticated());
+    }
     let token = cookie(headers, SESSION_COOKIE).ok_or_else(ApiError::unauthenticated)?;
     let db = state.db.lock().map_err(ApiError::internal)?;
-    let p:Option<Principal>=db.query_row("SELECT u.id,u.display_name,s.id,s.csrf_hash FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN devices d ON d.id=s.device_id WHERE s.token_hash=?1 AND s.revoked_at IS NULL AND u.revoked_at IS NULL AND (d.id IS NULL OR d.revoked_at IS NULL) AND s.expires_at>?2",params![hash(&token),now()],|r|Ok(Principal{user_id:r.get(0)?,display_name:r.get(1)?,session_id:r.get(2)?,csrf_hash:r.get(3)?})).optional().map_err(ApiError::internal)?;
+    let p:Option<Principal>=db.query_row("SELECT u.id,u.display_name,s.id,s.csrf_hash,s.device_id FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN devices d ON d.id=s.device_id WHERE s.token_hash=?1 AND s.revoked_at IS NULL AND u.revoked_at IS NULL AND (d.id IS NULL OR d.revoked_at IS NULL) AND s.expires_at>?2",params![hash(&token),now()],|r|Ok(Principal{user_id:r.get(0)?,display_name:r.get(1)?,session_id:r.get(2)?,csrf_hash:r.get(3)?,device_id:r.get(4)?})).optional().map_err(ApiError::internal)?;
     let p = p.ok_or_else(ApiError::unauthenticated)?;
     if csrf {
         let supplied = headers
@@ -1690,6 +2367,122 @@ fn authenticate(state: &AppState, headers: &HeaderMap, csrf: bool) -> Result<Pri
         }
     }
     Ok(p)
+}
+
+fn authenticate_bearer(
+    state: &AppState,
+    headers: &HeaderMap,
+    required_scope: c6_core::CredentialScope,
+) -> Result<TokenPrincipal, ApiError> {
+    if cookie(headers, SESSION_COOKIE).is_some() {
+        return Err(ApiError::unauthenticated());
+    }
+    validate_optional_origin(state, headers)?;
+    let values = headers.get_all(header::AUTHORIZATION);
+    if values.iter().count() != 1 {
+        return Err(ApiError::unauthenticated());
+    }
+    let authorization = values
+        .iter()
+        .next()
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(ApiError::unauthenticated)?;
+    let token = authorization
+        .strip_prefix("Bearer ")
+        .ok_or_else(ApiError::unauthenticated)?;
+    authenticate_opaque_token(state, token, c6_core::CredentialType::Cli, required_scope)
+}
+
+fn authenticate_opaque_token(
+    state: &AppState,
+    token: &str,
+    expected_type: c6_core::CredentialType,
+    required_scope: c6_core::CredentialScope,
+) -> Result<TokenPrincipal, ApiError> {
+    let public_id = parse_opaque_token(token, expected_type)?;
+    type CredentialRow = (
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+    );
+    let db = state.db.lock().map_err(ApiError::internal)?;
+    let row: Option<CredentialRow> = db
+        .query_row(
+            "SELECT c.id,c.verifier,u.id,u.display_name,c.scopes,c.workspace_id,c.project_id FROM credentials c JOIN users u ON u.id=c.user_id LEFT JOIN devices d ON d.id=c.device_id WHERE c.public_id=?1 AND c.credential_type=?2 AND c.revoked_at IS NULL AND c.expires_at>?3 AND u.revoked_at IS NULL AND (c.device_id IS NULL OR (d.id IS NOT NULL AND d.revoked_at IS NULL))",
+            params![public_id, expected_type.as_str(), now()],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?)),
+        )
+        .optional()
+        .map_err(ApiError::internal)?;
+    let (credential_id, verifier, user_id, display_name, scopes_json, workspace_id, project_id) =
+        row.ok_or_else(ApiError::unauthenticated)?;
+    if !secure_eq(&verifier, &hash(token)) {
+        return Err(ApiError::unauthenticated());
+    }
+    let scopes: Vec<c6_core::CredentialScope> =
+        serde_json::from_str(&scopes_json).map_err(ApiError::internal)?;
+    if !scopes.contains(&required_scope) {
+        return Err(ApiError::forbidden(
+            "credential scope does not allow this operation",
+        ));
+    }
+    db.execute(
+        "UPDATE credentials SET last_used_at=?1 WHERE id=?2",
+        params![now(), credential_id],
+    )
+    .map_err(ApiError::internal)?;
+    Ok(TokenPrincipal {
+        user_id,
+        display_name,
+        workspace_id,
+        project_id,
+    })
+}
+
+fn parse_opaque_token(
+    token: &str,
+    expected_type: c6_core::CredentialType,
+) -> Result<&str, ApiError> {
+    if token.len() > 256 || token.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        return Err(ApiError::unauthenticated());
+    }
+    let prefix = format!("{}_", expected_type.token_prefix());
+    let rest = token
+        .strip_prefix(&prefix)
+        .ok_or_else(ApiError::unauthenticated)?;
+    if rest.len() != 60 || rest.as_bytes().get(16) != Some(&b'_') {
+        return Err(ApiError::unauthenticated());
+    }
+    let public_id = &rest[..16];
+    let secret = &rest[17..];
+    if public_id.len() != 16
+        || secret.len() != 43
+        || URL_SAFE_NO_PAD
+            .decode(public_id)
+            .map_or(true, |bytes| bytes.len() != 12)
+        || URL_SAFE_NO_PAD
+            .decode(secret)
+            .map_or(true, |bytes| bytes.len() != 32)
+    {
+        return Err(ApiError::unauthenticated());
+    }
+    Ok(public_id)
+}
+
+fn validate_optional_origin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
+    if let Some(origin) = headers.get(header::ORIGIN) {
+        let origin = origin
+            .to_str()
+            .map_err(|_| ApiError::forbidden("invalid Origin header"))?;
+        if origin.trim_end_matches('/') != state.public_base_url {
+            return Err(ApiError::forbidden("cross-origin request rejected"));
+        }
+    }
+    Ok(())
 }
 fn issue_session(
     tx: &Transaction<'_>,
@@ -1865,6 +2658,68 @@ fn query_json<P: rusqlite::Params>(
     rows.map(|x| parse_json(x.map_err(ApiError::internal)?))
         .collect()
 }
+fn query_cli_projects<P: rusqlite::Params>(
+    db: &Connection,
+    sql: &str,
+    parameters: P,
+) -> Result<Vec<c6_core::CliProjectSummary>, ApiError> {
+    let mut statement = db.prepare(sql).map_err(ApiError::internal)?;
+    let rows = statement
+        .query_map(parameters, |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, String>(9)?,
+            ))
+        })
+        .map_err(ApiError::internal)?;
+    rows.map(|row| {
+        let (
+            id,
+            workspace_id,
+            slug,
+            name,
+            description,
+            default_branch,
+            head_sha,
+            published_sha,
+            role,
+            updated_at,
+        ) = row.map_err(ApiError::internal)?;
+        Ok(c6_core::CliProjectSummary {
+            id: Uuid::parse_str(&id).map_err(ApiError::internal)?,
+            workspace_id: Uuid::parse_str(&workspace_id).map_err(ApiError::internal)?,
+            slug,
+            name,
+            description,
+            default_branch,
+            head_sha,
+            published_sha,
+            role: parse_core_role(&role)?,
+            updated_at: parse_time(&updated_at)?,
+        })
+    })
+    .collect()
+}
+
+fn parse_core_role(role: &str) -> Result<c6_core::Role, ApiError> {
+    match role {
+        "consumer" => Ok(c6_core::Role::Consumer),
+        "reader" => Ok(c6_core::Role::Reader),
+        "runner" => Ok(c6_core::Role::Runner),
+        "contributor" => Ok(c6_core::Role::Contributor),
+        "maintainer" => Ok(c6_core::Role::Maintainer),
+        "owner" => Ok(c6_core::Role::Owner),
+        _ => Err(ApiError::internal("invalid persisted role")),
+    }
+}
 fn parse_json(s: String) -> Result<Value, ApiError> {
     serde_json::from_str(&s).map_err(ApiError::internal)
 }
@@ -1913,6 +2768,11 @@ fn random_token() -> String {
     rand::rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
+fn random_public_id() -> String {
+    let mut bytes = [0u8; 12];
+    rand::rng().fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
 fn hash(v: &str) -> String {
     format!("{:x}", Sha256::digest(v.as_bytes()))
 }
@@ -1929,6 +2789,59 @@ fn parse_time(s: &str) -> Result<DateTime<Utc>, ApiError> {
     DateTime::parse_from_rfc3339(s)
         .map(|d| d.with_timezone(&Utc))
         .map_err(ApiError::internal)
+}
+fn validate_credential_label(label: &str) -> Result<(), ApiError> {
+    nonempty("label", label, 80)?;
+    if label.chars().all(|character| !character.is_control()) {
+        Ok(())
+    } else {
+        Err(ApiError::bad("label must contain printable characters"))
+    }
+}
+
+fn validate_credential_restriction(
+    state: &AppState,
+    user_id: &str,
+    restriction: Option<&c6_core::CredentialResourceRestriction>,
+) -> Result<(Option<String>, Option<String>), ApiError> {
+    let Some(restriction) = restriction else {
+        return Ok((None, None));
+    };
+    if restriction.workspace_id.is_none() && restriction.project_id.is_none() {
+        return Err(ApiError::bad(
+            "restriction must select a workspace or project",
+        ));
+    }
+    let db = state.db.lock().map_err(ApiError::internal)?;
+    let workspace_id = match (&restriction.workspace_id, &restriction.project_id) {
+        (Some(workspace), None) => {
+            let workspace = workspace.to_string();
+            require_role_tx(&db, user_id, &workspace, "reader")?;
+            workspace
+        }
+        (workspace, Some(project)) => {
+            let project = project.to_string();
+            let actual: Option<String> = db
+                .query_row(
+                    "SELECT p.workspace_id FROM projects p JOIN memberships m ON m.workspace_id=p.workspace_id WHERE p.id=?1 AND m.user_id=?2",
+                    params![project, user_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(ApiError::internal)?;
+            let actual = actual.ok_or_else(|| ApiError::not_found("project"))?;
+            if workspace.is_some_and(|value| value.to_string() != actual.as_str()) {
+                return Err(ApiError::bad("project is not in the restricted workspace"));
+            }
+            require_role_tx(&db, user_id, &actual, "reader")?;
+            actual
+        }
+        (None, None) => unreachable!(),
+    };
+    Ok((
+        Some(workspace_id),
+        restriction.project_id.map(|project| project.to_string()),
+    ))
 }
 fn role_rank(r: &str) -> u8 {
     match r {
@@ -2048,7 +2961,10 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_state(dir: &TempDir) -> AppState {
-        open_state(dir.path(), "http://127.0.0.1:8787".into()).unwrap()
+        open_state_with_git_http(dir.path(), "http://127.0.0.1:8787".into(), false).unwrap()
+    }
+    fn git_test_state(dir: &TempDir) -> AppState {
+        open_state_with_git_http(dir.path(), "http://127.0.0.1:8787".into(), true).unwrap()
     }
     async fn request(
         app: &Router,
@@ -2158,6 +3074,672 @@ mod tests {
         )
         .await;
         assert_eq!(manifest.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    async fn issue_test_credential(
+        app: &Router,
+        cookies: &str,
+        csrf: &str,
+        kind: &str,
+        scopes: Value,
+        restriction: Value,
+    ) -> Value {
+        let response = request(
+            app,
+            Method::POST,
+            "/api/v1/credentials",
+            json!({"type":kind,"label":"test credential","scopes":scopes,"restriction":restriction}),
+            &[("cookie", cookies), ("x-c6-csrf", csrf)],
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        json_body(response).await
+    }
+
+    #[tokio::test]
+    async fn canonical_credential_request_rejects_unknown_and_untyped_fields() {
+        let dir = TempDir::new().unwrap();
+        let state = test_state(&dir);
+        let (cookies, csrf) = claim_owner(&state).await;
+        let application = app(state.clone());
+        for invalid in [
+            json!({"type":"cli","label":"strict","scopes":["api:read"],"unexpected":true}),
+            json!({"type":"browser","label":"strict","scopes":["api:read"]}),
+            json!({"type":"cli","label":"strict","scopes":["admin"]}),
+            json!({
+                "type":"cli",
+                "label":"strict",
+                "scopes":["api:read"],
+                "restriction":{"workspaceId":Uuid::new_v4(),"unexpected":true}
+            }),
+        ] {
+            let response = request(
+                &application,
+                Method::POST,
+                "/api/v1/credentials",
+                invalid,
+                &[("cookie", &cookies), ("x-c6-csrf", &csrf)],
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        }
+        let credential_count: i64 = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM credentials", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(credential_count, 0);
+    }
+
+    #[tokio::test]
+    async fn opaque_cli_credentials_are_verifier_only_and_class_separated() {
+        let dir = TempDir::new().unwrap();
+        let state = test_state(&dir);
+        let (cookies, csrf) = claim_owner(&state).await;
+        let application = app(state.clone());
+        let issued = issue_test_credential(
+            &application,
+            &cookies,
+            &csrf,
+            "cli",
+            json!(["api:read"]),
+            Value::Null,
+        )
+        .await;
+        let token = issued["token"].as_str().unwrap();
+        assert!(token.starts_with("c6c_v1_"));
+        let persisted: (String, String) = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row("SELECT public_id,verifier FROM credentials", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert!(!persisted.0.contains(token));
+        assert!(!persisted.1.contains(token));
+        assert_eq!(persisted.1, hash(token));
+
+        let authorization = format!("Bearer {token}");
+        let whoami = request(
+            &application,
+            Method::GET,
+            "/api/v1/cli/whoami",
+            json!(null),
+            &[("authorization", &authorization)],
+        )
+        .await;
+        assert_eq!(whoami.status(), StatusCode::OK);
+        assert_eq!(json_body(whoami).await["user"]["displayName"], "Owner");
+
+        for headers in [
+            vec![("cookie", cookies.as_str())],
+            vec![
+                ("authorization", authorization.as_str()),
+                ("cookie", cookies.as_str()),
+            ],
+            vec![(
+                "authorization",
+                "Bearer c6g_v1_AAAAAAAAAAAAAAAA_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            )],
+        ] {
+            assert_eq!(
+                request(
+                    &application,
+                    Method::GET,
+                    "/api/v1/cli/whoami",
+                    json!(null),
+                    &headers,
+                )
+                .await
+                .status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        assert_eq!(
+            request(
+                &application,
+                Method::GET,
+                "/api/v1/cli/whoami",
+                json!(null),
+                &[
+                    ("authorization", &authorization),
+                    ("origin", "https://evil.example")
+                ],
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+
+        let listed = json_body(
+            request(
+                &application,
+                Method::GET,
+                "/api/v1/credentials",
+                json!(null),
+                &[("cookie", &cookies)],
+            )
+            .await,
+        )
+        .await;
+        let serialized = listed.to_string();
+        assert!(!serialized.contains(token));
+        assert!(!serialized.contains(&persisted.1));
+        assert_eq!(listed["credentials"][0]["type"], "cli");
+        assert!(listed["credentials"][0]["userId"].is_string());
+    }
+
+    #[tokio::test]
+    async fn credential_revocation_is_immediate_idempotent_and_restart_safe() {
+        let dir = TempDir::new().unwrap();
+        let state = test_state(&dir);
+        let (cookies, csrf) = claim_owner(&state).await;
+        let application = app(state.clone());
+        let issued = issue_test_credential(
+            &application,
+            &cookies,
+            &csrf,
+            "cli",
+            json!(["api:read"]),
+            Value::Null,
+        )
+        .await;
+        let id = issued["credential"]["id"].as_str().unwrap();
+        let authorization = format!("Bearer {}", issued["token"].as_str().unwrap());
+        for _ in 0..2 {
+            assert_eq!(
+                request(
+                    &application,
+                    Method::DELETE,
+                    &format!("/api/v1/credentials/{id}"),
+                    json!(null),
+                    &[("cookie", &cookies), ("x-c6-csrf", &csrf)],
+                )
+                .await
+                .status(),
+                StatusCode::NO_CONTENT
+            );
+        }
+        assert_eq!(
+            request(
+                &application,
+                Method::GET,
+                "/api/v1/cli/whoami",
+                json!(null),
+                &[("authorization", &authorization)],
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        drop(application);
+        drop(state);
+        assert_eq!(
+            request(
+                &app(test_state(&dir)),
+                Method::GET,
+                "/api/v1/cli/whoami",
+                json!(null),
+                &[("authorization", &authorization)],
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_peer_revoked_and_device_revoked_credentials_fail_without_renewal() {
+        // Expiry and peer revocation are checked before a CLI credential can
+        // update last_used_at. Direct timestamps keep this regression
+        // deterministic and avoid sleeping around a security boundary.
+        let cli_dir = TempDir::new().unwrap();
+        let cli_state = test_state(&cli_dir);
+        let (cookies, csrf) = claim_owner(&cli_state).await;
+        let cli_app = app(cli_state.clone());
+        let expired = issue_test_credential(
+            &cli_app,
+            &cookies,
+            &csrf,
+            "cli",
+            json!(["api:read"]),
+            Value::Null,
+        )
+        .await;
+        let expired_id = expired["credential"]["id"].as_str().unwrap();
+        let expired_bearer = format!("Bearer {}", expired["token"].as_str().unwrap());
+        cli_state
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE credentials SET expires_at=?1 WHERE id=?2",
+                params![(Utc::now() - Duration::minutes(1)).to_rfc3339(), expired_id],
+            )
+            .unwrap();
+        assert_eq!(
+            request(
+                &cli_app,
+                Method::GET,
+                "/api/v1/cli/whoami",
+                json!(null),
+                &[("authorization", &expired_bearer)],
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let expired_last_used: Option<String> = cli_state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT last_used_at FROM credentials WHERE id=?1",
+                [expired_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(expired_last_used.is_none());
+
+        let peer_credential = issue_test_credential(
+            &cli_app,
+            &cookies,
+            &csrf,
+            "cli",
+            json!(["api:read"]),
+            Value::Null,
+        )
+        .await;
+        let peer_credential_id = peer_credential["credential"]["id"].as_str().unwrap();
+        let peer_bearer = format!("Bearer {}", peer_credential["token"].as_str().unwrap());
+        let peer_id = peer_credential["credential"]["userId"].as_str().unwrap();
+        cli_state
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE users SET revoked_at=?1 WHERE id=?2",
+                params![now(), peer_id],
+            )
+            .unwrap();
+        assert_eq!(
+            request(
+                &cli_app,
+                Method::GET,
+                "/api/v1/cli/whoami",
+                json!(null),
+                &[("authorization", &peer_bearer)],
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let peer_last_used: Option<String> = cli_state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT last_used_at FROM credentials WHERE id=?1",
+                [peer_credential_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(peer_last_used.is_none());
+
+        // Device revocation is independently enforced for the Git credential
+        // class. Cookie identity is not involved in this request.
+        let git_dir = TempDir::new().unwrap();
+        let git_state = git_test_state(&git_dir);
+        let (git_cookies, git_csrf) = claim_owner(&git_state).await;
+        let git_app = app(git_state.clone());
+        let git_credential = issue_test_credential(
+            &git_app,
+            &git_cookies,
+            &git_csrf,
+            "git",
+            json!(["git:read"]),
+            Value::Null,
+        )
+        .await;
+        let git_credential_id = git_credential["credential"]["id"].as_str().unwrap();
+        let device_id = git_credential["credential"]["deviceId"].as_str().unwrap();
+        let git_basic = format!(
+            "Basic {}",
+            STANDARD.encode(format!("c6:{}", git_credential["token"].as_str().unwrap()))
+        );
+        git_state
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE devices SET revoked_at=?1 WHERE id=?2",
+                params![now(), device_id],
+            )
+            .unwrap();
+        let denied = request(
+            &git_app,
+            Method::GET,
+            "/git/unknown/unknown.git/info/refs?service=git-upload-pack",
+            json!(null),
+            &[("authorization", &git_basic)],
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+        assert!(denied.headers().contains_key(header::WWW_AUTHENTICATE));
+        let git_last_used: Option<String> = git_state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT last_used_at FROM credentials WHERE id=?1",
+                [git_credential_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(git_last_used.is_none());
+    }
+
+    #[tokio::test]
+    async fn project_restriction_and_live_role_are_enforced_for_remote_discovery() {
+        let dir = TempDir::new().unwrap();
+        let state = test_state(&dir);
+        let (cookies, csrf) = claim_owner(&state).await;
+        let application = app(state.clone());
+        let auth = [("cookie", cookies.as_str()), ("x-c6-csrf", csrf.as_str())];
+        let mut projects = Vec::new();
+        for (workspace_slug, project_slug) in [("first", "notes"), ("second", "code")] {
+            let workspace = json_body(
+                request(
+                    &application,
+                    Method::POST,
+                    "/api/v1/workspaces",
+                    json!({"slug":workspace_slug,"name":workspace_slug}),
+                    &auth,
+                )
+                .await,
+            )
+            .await;
+            let workspace_id = workspace["id"].as_str().unwrap().to_owned();
+            let project = json_body(
+                request(
+                    &application,
+                    Method::POST,
+                    "/api/v1/projects",
+                    json!({"workspaceId":workspace_id,"slug":project_slug,"name":project_slug}),
+                    &auth,
+                )
+                .await,
+            )
+            .await;
+            projects.push((workspace_id, project["id"].as_str().unwrap().to_owned()));
+        }
+        let issued = issue_test_credential(
+            &application,
+            &cookies,
+            &csrf,
+            "cli",
+            json!(["api:read"]),
+            json!({"workspaceId":projects[0].0,"projectId":projects[0].1}),
+        )
+        .await;
+        let bearer = format!("Bearer {}", issued["token"].as_str().unwrap());
+        let remote = request(
+            &application,
+            Method::GET,
+            &format!("/api/v1/projects/{}/remote", projects[0].1),
+            json!(null),
+            &[("authorization", &bearer)],
+        )
+        .await;
+        assert_eq!(remote.status(), StatusCode::OK);
+        assert_eq!(json_body(remote).await["capabilities"]["fetch"], false);
+        let git_issued = issue_test_credential(
+            &application,
+            &cookies,
+            &csrf,
+            "git",
+            json!(["git:read"]),
+            json!({"workspaceId":projects[0].0,"projectId":projects[0].1}),
+        )
+        .await;
+        let git_basic = format!(
+            "Basic {}",
+            STANDARD.encode(format!("c6:{}", git_issued["token"].as_str().unwrap()))
+        );
+        assert_eq!(
+            request(
+                &application,
+                Method::GET,
+                "/git/first/notes.git/info/refs?service=git-upload-pack",
+                json!(null),
+                &[("authorization", &git_basic)],
+            )
+            .await
+            .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            request(
+                &application,
+                Method::GET,
+                &format!("/api/v1/projects/{}/remote", projects[1].1),
+                json!(null),
+                &[("authorization", &bearer)],
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        let user_id: String = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row("SELECT user_id FROM credentials LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        state
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE memberships SET role='consumer' WHERE workspace_id=?1 AND user_id=?2",
+                params![projects[0].0, user_id],
+            )
+            .unwrap();
+        assert_eq!(
+            request(
+                &application,
+                Method::GET,
+                &format!("/api/v1/projects/{}/remote", projects[0].1),
+                json!(null),
+                &[("authorization", &bearer)],
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn git_http_is_basic_only_read_only_live_authorized_and_non_enumerating() {
+        let dir = TempDir::new().unwrap();
+        let state = git_test_state(&dir);
+        let (cookies, csrf) = claim_owner(&state).await;
+        let application = app(state.clone());
+        let browser = [("cookie", cookies.as_str()), ("x-c6-csrf", csrf.as_str())];
+        let mut projects = Vec::new();
+        for (workspace_slug, project_slug) in [("alpha", "notes"), ("bravo", "code")] {
+            let workspace = json_body(
+                request(
+                    &application,
+                    Method::POST,
+                    "/api/v1/workspaces",
+                    json!({"slug":workspace_slug,"name":workspace_slug}),
+                    &browser,
+                )
+                .await,
+            )
+            .await;
+            let workspace_id = workspace["id"].as_str().unwrap().to_owned();
+            let project = json_body(
+                request(
+                    &application,
+                    Method::POST,
+                    "/api/v1/projects",
+                    json!({"workspaceId":workspace_id,"slug":project_slug,"name":project_slug}),
+                    &browser,
+                )
+                .await,
+            )
+            .await;
+            projects.push((
+                workspace_slug,
+                project_slug,
+                workspace_id,
+                project["id"].as_str().unwrap().to_owned(),
+            ));
+        }
+        let issued = issue_test_credential(
+            &application,
+            &cookies,
+            &csrf,
+            "git",
+            json!(["git:read"]),
+            json!({"workspaceId":projects[0].2,"projectId":projects[0].3}),
+        )
+        .await;
+        let credential_id = issued["credential"]["id"].as_str().unwrap().to_owned();
+        let token = issued["token"].as_str().unwrap();
+        let basic = format!("Basic {}", STANDARD.encode(format!("c6:{token}")));
+        let first = format!(
+            "/git/{}/{}.git/info/refs?service=git-upload-pack",
+            projects[0].0, projects[0].1
+        );
+        let response = request(
+            &application,
+            Method::GET,
+            &first,
+            json!(null),
+            &[("authorization", &basic)],
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/x-git-upload-pack-advertisement"
+        );
+        assert!(
+            to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .starts_with(b"001e# service=git-upload-pack")
+        );
+
+        for headers in [
+            vec![],
+            vec![("cookie", cookies.as_str())],
+            vec![
+                ("authorization", basic.as_str()),
+                ("cookie", cookies.as_str()),
+            ],
+            vec![("authorization", "Basic bm90LWM2Om5vdC1hLXRva2Vu")],
+        ] {
+            let denied = request(&application, Method::GET, &first, json!(null), &headers).await;
+            assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+            assert!(denied.headers().contains_key(header::WWW_AUTHENTICATE));
+        }
+        let cross_workspace = format!(
+            "/git/{}/{}.git/info/refs?service=git-upload-pack",
+            projects[1].0, projects[1].1
+        );
+        assert_eq!(
+            request(
+                &application,
+                Method::GET,
+                &cross_workspace,
+                json!(null),
+                &[("authorization", &basic)],
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            request(
+                &application,
+                Method::GET,
+                &format!(
+                    "/git/{}/{}.git/info/refs?service=git-receive-pack",
+                    projects[0].0, projects[0].1
+                ),
+                json!(null),
+                &[("authorization", &basic)],
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            request(
+                &application,
+                Method::POST,
+                &format!(
+                    "/git/{}/{}.git/git-receive-pack",
+                    projects[0].0, projects[0].1
+                ),
+                json!(null),
+                &[("authorization", &basic)],
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+
+        state
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE memberships SET role='consumer' WHERE workspace_id=?1",
+                [&projects[0].2],
+            )
+            .unwrap();
+        assert_eq!(
+            request(
+                &application,
+                Method::GET,
+                &first,
+                json!(null),
+                &[("authorization", &basic)],
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        state
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE credentials SET revoked_at=?1 WHERE id=?2",
+                params![now(), credential_id],
+            )
+            .unwrap();
+        assert_eq!(
+            request(
+                &application,
+                Method::GET,
+                &first,
+                json!(null),
+                &[("authorization", &basic)],
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
     }
     #[tokio::test]
     async fn authenticated_peer_can_validate_manifest() {
@@ -2783,6 +4365,21 @@ mod tests {
             validate_exposure("0.0.0.0".parse().unwrap(), "https://c6.example", false).is_err()
         );
         assert!(validate_exposure("0.0.0.0".parse().unwrap(), "https://c6.example", true).is_ok());
+    }
+
+    #[test]
+    fn git_http_transport_is_default_off_and_strictly_configured() {
+        assert!(!parse_git_http_enabled(None).unwrap());
+        assert!(!parse_git_http_enabled(Some("false")).unwrap());
+        assert!(!parse_git_http_enabled(Some("0")).unwrap());
+        assert!(parse_git_http_enabled(Some("true")).unwrap());
+        assert!(parse_git_http_enabled(Some("1")).unwrap());
+        for invalid in ["", "TRUE", "False", "yes", "on", " true", "true ", "2"] {
+            assert!(
+                parse_git_http_enabled(Some(invalid)).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
     }
 
     #[test]

@@ -13,6 +13,7 @@ services:
       C6_WEB_DIST: /opt/c6/web
       C6_DATA_DIR: /var/lib/c6
       C6_PUBLIC_BASE_URL: ${C6_PUBLIC_BASE_URL:-http://127.0.0.1:8787}
+      C6_GIT_HTTP_ENABLED: ${C6_GIT_HTTP_ENABLED:-false}
       # Required for the container-interface HTTP hop. This does not publish
       # C6 beyond the host binding above.
       C6_INSECURE_HTTP: "1"

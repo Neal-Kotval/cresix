@@ -44,3 +44,8 @@ at a pinned revision, persist the complete policy, and reconcile runner outcome
 without automatic retry.
 
 This daemon is not evidence of container isolation or hosting support.
+
+The proposed deny-by-default `RuntimeAdapter`, Docker-first backend, immutable
+run plan, secrets injection, and reconciliation milestones are design only; see
+the [agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md). Docker is
+an initial backend choice, not a complete sandbox for hostile tenants.

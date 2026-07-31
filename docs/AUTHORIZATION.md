@@ -37,6 +37,15 @@ success.
 - Workspace owner/maintainer/etc.: workspace and project endpoints enforce a
   minimum cumulative role before reading or mutating.
 - Project repository reads require at least reader membership.
+- Browser-authenticated peers can issue/list/revoke their own expiring CLI or
+  Git credentials. Tokens cap authority by type, scope, optional workspace/
+  project restriction, and expiry; current peer/device state and live
+  membership are still checked on every use.
+- `api:read` Bearer credentials can access the implemented CLI identity,
+  project-list, and remote-discovery reads. They never grant server
+  administration. Git `git:read` credentials authenticate only upload-pack,
+  which is disabled by default unless the operator explicitly enables it.
+- Git push and `git:write` are unavailable regardless of role or token input.
 - Workspace/project destructive deletion is intentionally `501` until SQL/Git
   erasure can be coordinated safely.
 

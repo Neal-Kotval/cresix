@@ -2,8 +2,9 @@
 
 This guide describes the current single-machine Docker Compose distribution.
 C6 is still a development preview: use it on loopback or a trusted development
-network only. Public hosting is blocked on durable peer authentication and
-enforced workload isolation.
+network only. Public/company use remains blocked by administrator recovery,
+rate limiting, hardened ingress guidance, verified restore, and enforced
+workload isolation. Read-only Git credentials do not close those gaps.
 
 ## Host requirements
 
@@ -47,6 +48,21 @@ hashed bearer sessions, revocation, role checks, and audit records. It does not
 implement key-based login or owner recovery. A successful health check means
 the process and local data store are serving, not that the installation is
 ready for untrusted users.
+
+### CLI and Git credential check
+
+After claiming and creating a workspace/project, open Hub **Credentials**.
+Issue one CLI `api:read` credential and one Git `git:read` credential; each is
+shown once and the server stores only a verifier. Follow [CLI](CLI.md) to record
+and verify the server ID during setup/login, list projects, and clone. Read-only smart HTTP
+is disabled by default; set `C6_GIT_HTTP_ENABLED=1` only for a deliberate
+trusted evaluation. Verify that `git fetch` succeeds and `git push` is rejected.
+Revoke the credentials in Hub and confirm the next CLI/Git request fails.
+
+The CLI preview store is an owner-only plaintext file and requires an explicit
+opt-in. Protect and remove it when the evaluation ends. Browser sessions, CLI
+tokens, and Git tokens are independent credentials; never substitute one for
+another or embed any token in a URL.
 
 ### Verify first-owner claim locally
 
@@ -116,6 +132,12 @@ For future remote use, the external route must:
 IP allowlists and VPNs are useful additional network restrictions, but IP
 addresses must never identify or authorize a peer. NAT, DHCP, proxies, and
 shared networks make that unsafe and unreliable.
+
+ngrok can provide the HTTPS route for a laptop evaluation, but is neither a C6
+dependency nor an identity provider. The same rules apply to every tunnel:
+keep the backend private, set the exact stable HTTPS public origin, and require
+C6 authentication. An unavailable tunnel makes the one authority unreachable;
+it does not fail over authority elsewhere.
 
 ## Persistent data
 

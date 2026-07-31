@@ -25,6 +25,9 @@ describe("C6 application routes", () => {
       if (path.includes("/runs")) return response({ runs: fixtureProject.runs });
       if (path.includes("/repository/commits")) return response({ commits: fixtureProject.revisions });
       if (path.endsWith("/peers")) return response({ peers: [{ id: "u-neal", displayName: "Neal Kotval" }] });
+      if (path.endsWith("/credentials") && init?.method === "POST") return response({ credential: { id: "credential-new", userId: "u-neal", deviceId: "device-local", type: "git", label: "Laptop Git", scopes: ["git:read"], createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86_400_000).toISOString() }, token: "c6g_v1_public_once-only-secret" });
+      if (path.endsWith("/credentials")) return response({ credentials: [{ id: "credential-cli", userId: "u-neal", deviceId: "device-local", type: "cli", label: "Laptop CLI", scopes: ["api:read"], createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86_400_000).toISOString() }] });
+      if (path.endsWith("/remote")) return response({ projectId: fixtureProject.id, cloneUrl: "https://c6.example/git/paper-street/weeknote.git", capabilities: { fetch: true, push: false } });
       if (path.endsWith("/invites") && init?.method !== "POST") return response({ invites: [] });
       if (path.endsWith("/invites")) return response({ id: "invite-new", inviteUrl: "/join#token=opaque", expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
       if (path.match(/\/projects\/[\w-]+$/)) return response(fixtureProject);
@@ -82,6 +85,28 @@ describe("C6 application routes", () => {
     expect(await screen.findByText("OPENAI_API_KEY")).toBeInTheDocument();
     expect(screen.getAllByText("friday-notes").length).toBeGreaterThan(0);
     expect(screen.queryByText(/sk-/)).not.toBeInTheDocument();
+  });
+
+  it("reveals a new Git credential once and removes its secret after dismissal", async () => {
+    setRoute("/credentials"); render(<App />);
+    expect(await screen.findByRole("heading", { name: "CLI & Git credentials" })).toBeInTheDocument();
+    expect(screen.getByText("Laptop CLI")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /Git HTTPS/ }));
+    expect(screen.getByText("git:write").parentElement).toHaveTextContent("unavailable");
+    fireEvent.change(screen.getByLabelText("Label"), { target: { value: "Laptop Git" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create credential" }));
+    const dialog = await screen.findByRole("dialog", { name: "Copy Laptop Git now" });
+    expect(within(dialog).getByDisplayValue("c6g_v1_public_once-only-secret")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "I have stored it" }));
+    await waitFor(() => expect(screen.queryByText("c6g_v1_public_once-only-secret")).not.toBeInTheDocument());
+    expect(document.body.textContent).not.toContain("c6g_v1_public_once-only-secret");
+  });
+
+  it("shows a credential-free read-only clone URL", async () => {
+    setRoute("/projects/weeknote"); render(<App />);
+    expect(await screen.findByText("https://c6.example/git/paper-street/weeknote.git")).toBeInTheDocument();
+    expect(screen.getByText("Push unavailable")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("c6g_v1_");
   });
 
   it("creates trusted peer invitations without pretending fixture approvals persist", async () => {

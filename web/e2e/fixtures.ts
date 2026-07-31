@@ -22,6 +22,10 @@ export async function mockC6(page: Page, options: { empty?: boolean; delay?: num
     if (path.endsWith("/invites") && route.request().method() === "POST") return route.fulfill({ status: 201, json: { id: "invite-new", token: "opaque", expiresAt: new Date(Date.now() + 86_400_000).toISOString(), inviteUrl: "/join#token=opaque" } });
     if (path.endsWith("/invites")) return route.fulfill({ json: { invites: [] } });
     if (path.endsWith("/peers")) return route.fulfill({ json: { peers: [{ id: fixtureSession.user.id, displayName: fixtureSession.user.displayName }] } });
+    if (path.endsWith("/credentials") && route.request().method() === "GET") return route.fulfill({ json: { credentials: [{ id: "credential-cli", userId: fixtureSession.user.id, deviceId: "device-laptop", type: "cli", label: "Laptop CLI", scopes: ["api:read"], createdAt: new Date(Date.now() - 86_400_000).toISOString(), expiresAt: new Date(Date.now() + 2_592_000_000).toISOString() }] } });
+    if (path.endsWith("/credentials") && route.request().method() === "POST") return route.fulfill({ status: 201, json: { credential: { id: "credential-new", userId: fixtureSession.user.id, deviceId: "device-laptop", type: "git", label: "Laptop Git", scopes: ["git:read"], createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 2_592_000_000).toISOString() }, token: "c6g_v1_public_once-only-secret" } });
+    if (path.includes("/credentials/") && route.request().method() === "DELETE") return route.fulfill({ status: 204, body: "" });
+    if (path.endsWith("/remote")) return route.fulfill({ json: { projectId: fixtureProject.id, cloneUrl: "https://c6.example/git/paper-street/weeknote.git", capabilities: { fetch: true, push: false } } });
     if (path.endsWith("/invites/redeem")) return route.fulfill({ status: 201, json: { user: { id: "peer-new", displayName: "New peer" } } });
     if (path.includes("/projects/")) return route.fulfill({ json: fixtureProject });
     return route.fulfill({ status: 404, json: { error: "not found" } });

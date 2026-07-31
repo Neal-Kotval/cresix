@@ -2,16 +2,19 @@
 
 ## Promise
 
-C6 aims to make small, purpose-built software as easy to keep, inspect, and
-share as a document. The repository, collaboration context, declared runtime,
-and operational history should live together on infrastructure the operator
-controls.
+C6 is an agent-centric, self-hostable software forge for small, purpose-built
+software. The repository, collaboration context, declared runtime, hosting
+intent, and operational history should live together on infrastructure the
+operator controls. Humans and agents should act through the same narrow,
+auditable interfaces: web for oversight, CLI for composition, and eventually
+pollable HTTP/MCP surfaces for automation.
 
 The current release is the collaboration/control-plane foundation. It persists
 peers, workspaces, project metadata, local Git repositories, pull-request
-records, schedules, runs, and deployments. It does not host applications,
-accept Git pushes, execute jobs, store secret values, or provide recoverable
-login.
+records, schedules, runs, and deployments. It issues separate CLI/Git
+credentials, supports a thin CLI, and can serve opt-in authenticated read-only
+Git smart HTTP. It does not host applications, accept Git pushes, execute jobs,
+store secret values, or provide recoverable login.
 
 ## Two web surfaces, one C6
 
@@ -31,10 +34,10 @@ deployments. Hub and Admin must never disagree about identity, membership,
 project state, or audit history because one C6 server remains authoritative for
 all of them.
 
-The future `c6` CLI follows the same rule. It will be a thin authenticated API
-client and operator entry point, not a daemon, a second data authority, or a
-way to bypass server-side authorization. No `c6` CLI commands are implemented
-in this release.
+The implemented `c6` CLI follows the same rule. It is a thin authenticated API
+client and Git launcher, not a daemon, a second data authority, or a way to
+bypass server-side authorization. Its current commands cover server aliases,
+login/status/logout, project listing, clone, remote setup, and diagnostics.
 
 ## People
 
@@ -55,7 +58,8 @@ replay, cross-site mutation, path traversal, and unsafe runner protocol input.
 
 1. Start one C6 server locally and claim it without a hosted identity provider.
 2. Invite a remote collaborator through a short-lived, single-use link.
-3. Create a project with a seeded local Git repository and inspect its source.
+3. Create a project with a seeded local Git repository, clone it, and fetch it
+   with standard Git using a separate read-only credential.
 4. Record pull requests, schedules, deployment intents, and run intents against
    real revisions.
 5. Back up or move the complete installation as a small number of local data
@@ -79,12 +83,14 @@ Admin does not automate TLS, backups, hosting, or runner dispatch.
 - **Fail closed at boundaries:** stale roles, bad origins, unsafe paths,
   malformed schedules, and unauthenticated runner frames are rejected.
 - **Local QA:** extensive reproducible gates without requiring hosted CI.
+- **Agent legibility:** JSON, explicit state, stable IDs, and future cursors are
+  preferred over scraping screens or granting ambient host access.
 
 ## Non-goals for this release
 
 - Host applications or arbitrary TCP services
 - Execute commands, containers, cron jobs, or agents
-- Serve Git smart HTTP/SSH or accept network pushes
+- Accept Git push or serve SSH, anonymous Git, LFS, or dumb HTTP
 - Store or inject secret values
 - Provide password, passkey, SSH-key, OAuth, OIDC, or recovery authentication
 - Support anonymous/public projects, hostile multi-tenancy, HA, or federation

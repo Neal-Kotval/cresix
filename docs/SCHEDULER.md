@@ -42,3 +42,9 @@ The server currently persists validated schedule metadata and the next instant,
 returning `dispatchAvailable: false`. It does not persist scheduler checkpoints,
 run a tick loop, or create occurrence-backed runs. Those are required before
 the UI can truthfully say a cron will execute.
+
+The intended production slice pins revision and configuration digests, claims
+occurrences idempotently, uses leases, skips missed occurrences, performs no
+automatic retries initially, and supports revision-bound human approval. It is
+specified—not implemented—in the
+[agent-first runtime design](specs/AGENT_FIRST_RUNTIME.md).

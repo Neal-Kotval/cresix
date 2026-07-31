@@ -8,8 +8,12 @@
   not implemented yet.
 - **C6 Admin:** web surface for installation operations. Its canonical
   first-slice routes are `/admin` and `/admin/access`; it is not another server.
-- **`c6` CLI:** future thin client of the C6 HTTP API and operator entry point.
-  It is not implemented and will not own control-plane state.
+- **`c6` CLI:** implemented thin client of the C6 HTTP API and standard Git.
+  It owns local aliases/credentials but never control-plane state.
+- **CLI credential:** expiring `c6c_v1_...` Bearer token capped by API scopes,
+  resource restrictions, and live authority.
+- **Git credential:** separate expiring `c6g_v1_...` Basic password for
+  read-only smart HTTP; username is exactly `c6`.
 - **Server administrator:** immutable peer created by bootstrap. This identity
   alone manages global invitations, peers, workspace creation, and the global
   audit log. Device and session endpoints are currently self-service.
@@ -38,6 +42,11 @@
   protocol with a simulation backend.
 - **Simulation:** lifecycle/log/cancellation behavior that never invokes a host
   command, Docker, or a project workload.
+- **Runtime adapter:** deferred deny-by-default execution backend contract.
+  Docker is the intended first adapter but is not implemented or sufficient
+  alone for hostile multi-tenancy.
+- **Ingress:** operator-provided HTTPS reachability such as Caddy, a VPN, or
+  ngrok. It is never C6 identity or authority.
 - **Secret metadata:** validated name showing intended configuration. Secret
   value storage returns `501 Not Implemented`.
 - **Public base URL:** exact browser origin used for cookies, mutations, and

@@ -1,5 +1,5 @@
 import { fixtureProject, fixtureProjects, fixtureSession } from "./fixtures";
-import type { ProjectDetail, ProjectSummary, PullRequest, Run, Session } from "./types";
+import type { CredentialMetadata, CredentialScope, CredentialType, ProjectDetail, ProjectRemote, ProjectSummary, PullRequest, Run, Session } from "./types";
 
 let csrfToken = "";
 const demoEnabled = import.meta.env.VITE_C6_DEMO === "1";
@@ -58,6 +58,25 @@ export const api = {
   createInvite: (input: { role: string; expiresInMinutes: number; workspaceId?: string }) => post<{ id: string; token: string; expiresAt: string; inviteUrl: string }>("/api/v1/invites", input),
   peers: () => request<{ peers: Array<{ id: string; displayName: string; revokedAt?: string }> }>("/api/v1/peers"),
   invites: () => request<{ invites: Array<{ id: string; role: string; workspaceId?: string; expiresAt: string; redeemedAt?: string }> }>("/api/v1/invites"),
+  credentials: async () => {
+    type WireCredential = Omit<CredentialMetadata, "credentialType"> & { type: CredentialType };
+    const value = await request<{ credentials: WireCredential[] } | WireCredential[]>("/api/v1/credentials");
+    const items = Array.isArray(value) ? value : value.credentials;
+    return items.map(({ type, ...credential }) => ({ ...credential, credentialType: type }));
+  },
+  createCredential: async (input: { credentialType: CredentialType; label: string; expiresAt: string; scopes: CredentialScope[]; restriction?: { workspaceId?: string; projectId?: string } }) => {
+    type WireCredential = Omit<CredentialMetadata, "credentialType"> & { type: CredentialType };
+    const { credentialType: type, ...body } = input;
+    const value = await post<{ credential: WireCredential; token: string }>("/api/v1/credentials", { ...body, type });
+    const { type: returnedType, ...credential } = value.credential;
+    return { token: value.token, credential: { ...credential, credentialType: returnedType } };
+  },
+  revokeCredential: (id: string) => request<void>(`/api/v1/credentials/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  projectRemote: async (projectId: string) => {
+    const value = await request<ProjectRemote>(`/api/v1/projects/${encodeURIComponent(projectId)}/remote`);
+    if (!value || typeof value.cloneUrl !== "string" || !value.capabilities || typeof value.capabilities.fetch !== "boolean" || typeof value.capabilities.push !== "boolean") throw new ApiError(502, "C6 returned invalid clone details");
+    return value;
+  },
   run: (projectId: string, job: string, kind: Run["kind"], revisionSha?: string) => post<Run>(`/api/v1/projects/${projectId}/runs`, { job, kind, revisionSha }),
   deploy: (projectId: string, revisionSha: string, environment = "production") => post(`/api/v1/projects/${projectId}/deployments`, { revisionSha, environment }),
 };

@@ -28,6 +28,10 @@ Docker publishes C6 only to host loopback. The server and standalone simulation
 runner have separate read-only containers and persistent data volumes. C6 has
 no runner socket mount or Docker socket.
 
+Authenticated read-only Git HTTP is also disabled by default. Set
+`C6_GIT_HTTP_ENABLED=1` in the private `.env` only for a deliberate trusted
+evaluation; this does not enable push or make internet exposure production-safe.
+
 ## Trusted LAN evaluation
 
 Direct LAN HTTP exposes session/invitation data to anyone able to observe the
@@ -59,6 +63,34 @@ is plaintext. An HTTPS public URL does not turn on backend TLS.
 The proxy should preserve host/scheme semantics, avoid caching APIs, cap request
 sizes/connections, and expose no data volume, runner socket, or internal port.
 
+### Optional tunnels, including ngrok
+
+ngrok is still useful for a laptop evaluation when an operator wants a public
+HTTPS URL without configuring inbound routing. It is optional and replaceable
+by Tailscale, Cloudflare Tunnel, Caddy, or another HTTPS gateway. Configure the
+stable tunnel origin as `C6_PUBLIC_BASE_URL`, keep the C6 listener on loopback,
+and protect the tunnel account. A tunnel address or tunnel-provider identity
+never authenticates a C6 peer; C6 sessions and separate CLI/Git credentials are
+still required. Do not use an ephemeral URL without understanding that origin
+changes invalidate browser origin assumptions and require CLI/remote rebinding.
+
+## Always-on Linux host
+
+This is the recommended future shape for a small team: run the same Compose
+stack or supervised binaries on one host, persist the data volumes, keep C6 on
+loopback/private networking, terminate HTTPS at a reverse proxy or tunnel, and
+automate coordinated, verified backups. The current preview still lacks owner
+recovery, rate limiting, workload execution, and hardened public exposure; an
+always-on host improves availability but does not remove those blockers.
+
+## AWS or another cloud VM
+
+Run the same single-authority artifact on a small VM with a persistent attached
+disk. Allow inbound HTTPS only to the operator-managed gateway, deny direct
+public access to port 8787 and runner sockets, and snapshot/export the complete
+data boundary. C6 does not require Kubernetes, RDS, object storage, or a vendor
+control plane. Restore/migration must leave only one writable authority.
+
 ## Unsupported patterns
 
 - Direct public-internet C6 listener
@@ -67,6 +99,11 @@ sizes/connections, and expose no data volume, runner socket, or internal port.
 - Kubernetes/HA, remote runners, or federation
 - Public/anonymous projects
 - Treating C6 as a project hosting runtime
+
+See [ADR 0001](decisions/0001-single-authority-self-hosting.md) for the
+authority/portability decision and the
+[agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md) for deferred
+hosting and sandbox design.
 
 See [Configuration](CONFIGURATION.md) and [Operations](OPERATIONS.md) for exact
 settings and backup/upgrade procedures.

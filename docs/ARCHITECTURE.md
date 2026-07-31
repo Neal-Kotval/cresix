@@ -30,9 +30,17 @@ database, Git root, configuration, backup boundary, and release lifecycle.
 Legacy `/settings/*` web routes redirect to their canonical Admin destinations;
 they do not establish another API or authority.
 
-A future `c6` CLI may call the same authenticated API for operator workflows.
-It is explicitly a thin client—not a resident process, privileged side door,
-or second control plane—and has no implemented commands today.
+The `c6` CLI calls scoped API endpoints and obtains canonical, credential-free
+Git remotes. `git` and IDEs use a separate Basic credential against the
+read-only smart-HTTP router. Cookie, Bearer, and Git credentials are not
+interchangeable. The CLI is explicitly a thin client—not a resident process,
+privileged side door, or second control plane.
+
+```text
+c6 --json / future MCP client ── scoped API ──┐
+browser ── cookie + CSRF ─────────────────────┼─> one C6 authority
+git/IDE ── Basic c6:<git token> ── upload-pack┘
+```
 
 The MVP deliberately uses an embedded SQLite control store and on-disk bare Git
 repositories. A single local data directory makes a laptop install portable and
@@ -90,9 +98,13 @@ unknown outcome becomes `interrupted`; C6 never retries it automatically. The
 current backend simulates bounded execution and never invokes a host command or
 container runtime.
 
-Containers are an accident boundary for trusted team code, not a sufficient
-boundary for mutually hostile tenants. Public multi-tenant hosting requires a
-stronger sandbox such as microVMs.
+Docker is the intended first execution backend because it is available and
+operationally legible, but it is not implemented in the runner. Even when it
+is, a container alone is only an accident boundary for trusted team code.
+Production execution also needs least-privilege mounts, resource and egress
+enforcement, secret scoping, image provenance, log redaction, and a control
+plane without the Docker socket. Hostile multi-tenancy requires a stronger
+boundary such as microVMs.
 
 ## Stable concepts
 
@@ -141,3 +153,17 @@ branch are never an agent capability.
 Agent execution remains disabled until C6 can encrypt credentials, grant them
 per job, restrict egress, redact logs, and prevent use of the server owner's
 ambient Codex credentials.
+
+## Agent-facing evolution
+
+The JSON API is the authority for every future agent surface. Pollable run and
+deployment state should use bounded pages, durable cursors, explicit terminal
+states, and retry-safe mutations. A future MCP server may translate those
+typed operations for agents, but it must not query SQLite directly, mint wider
+credentials, or bypass role checks. Neither cursor APIs nor MCP exist today.
+The staged contract is in the
+[agent-first runtime specification](specs/AGENT_FIRST_RUNTIME.md).
+
+Ingress is similarly replaceable. ngrok, Tailscale, Cloudflare Tunnel, Caddy,
+or a conventional reverse proxy can provide reachability and TLS; none is C6
+identity or authority. See [ADR 0001](decisions/0001-single-authority-self-hosting.md).

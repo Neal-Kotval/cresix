@@ -19,18 +19,50 @@ The server currently exposes bounded read endpoints and seeds a new project
 repository with initial content. Other library capability is not automatically
 a public product workflow.
 
+## Implemented read-only smart HTTP
+
+C6 serves the standard Git smart-HTTP upload-pack protocol at:
+
+```text
+GET  /git/<workspace>/<project>.git/info/refs?service=git-upload-pack
+POST /git/<workspace>/<project>.git/git-upload-pack
+```
+
+Normal `git clone`, `git fetch`, and `git pull` work. Authentication is HTTP
+Basic with exact username `c6` and a separately issued `c6g_v1_...` token as
+the password. Browser cookies and CLI Bearer tokens are rejected. Each request
+checks token expiry/revocation, active device and peer, optional resource
+restriction, and current reader-or-higher membership.
+
+The route is a deliberate preview opt-in: set `C6_GIT_HTTP_ENABLED=1` on the
+server. The default is disabled, remote discovery reports `fetch: false`, and
+the route returns unavailable. This guard does not make public exposure safe;
+rate limiting, owner recovery, and production ingress hardening remain absent.
+
+The adapter resolves public slugs through SQLite to a UUID repository and runs
+`git http-backend` with an argument-only invocation, cleared/controlled
+environment, bounded request/response/stderr sizes, timeouts, strict protocol
+headers, and an allowlist of returned CGI headers. If Git is unavailable at
+server startup, remote discovery reports fetch unavailable.
+
+Successful/denied upload-pack requests are not yet written to a durable Git
+access audit log. Successful token authentication updates credential
+`lastUsedAt`; that metadata is not a complete access record. Durable push audit
+and reconciliation belong to the deferred protected-push milestone.
+
 ## Not implemented
 
-- Git smart HTTP or SSH transport
-- Network clone, fetch, push, or credential issuance
+- Push/receive-pack or any ref mutation over the network
+- SSH, dumb HTTP, anonymous access, LFS, archives, or partial clone filters
 - Browser branch editing or complete PR merge workflow
 - Remote URL import
 - Public repositories or anonymous source access
 
-To inspect current source, use the authenticated repository JSON API or open
-the operator-owned bare repository locally while C6 is stopped. Do not mutate
-bare storage behind a running server; that bypasses authorization, expected-ref
-checks, and audit records.
+Use the authenticated repository JSON API or read-only smart HTTP. Do not
+mutate bare storage behind a running server; that bypasses authorization,
+expected-ref checks, and audit records. Push is explicitly deferred until the
+atomic authorization/audit design in the
+[Phase 2 specification](specs/PHASE_2_GIT_AND_CLI.md) is complete.
 
 ## Safety invariants
 
