@@ -27,6 +27,21 @@ deployment patterns, examples, dogfood, and testing.
 
 Requirements: Rust 1.95+, Node.js 22+, and npm.
 
+With [Just](https://just.systems/) installed, the shortest path is:
+
+```bash
+just setup
+just start
+```
+
+`just start` builds the web app, starts the complete foreground server, and
+prints a newly generated first-owner token in that local terminal. It never
+prints the token after claim. You can deliberately show the still-unclaimed
+token again with `just bootstrap-token`. Use `just start-git` to opt into the
+read-only Git preview.
+
+The equivalent commands without Just are:
+
 ```bash
 npm ci --prefix web
 npm run build --prefix web

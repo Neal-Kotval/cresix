@@ -7,6 +7,9 @@ test("first owner claim explains and advances through local trust", async ({ pag
   await page.goto("/claim");
   await expect(page.getByRole("heading", { name: "Claim this C6 server" })).toBeVisible();
   await expect(page.getByText(/public-key field is a placeholder/)).toBeVisible();
+  const tokenHelp = page.getByRole("complementary", { name: "Find your bootstrap token" });
+  await expect(tokenHelp).toContainText("just bootstrap-token");
+  await expect(tokenHelp).toContainText("just bootstrap-token-compose");
   await page.getByRole("textbox", { name: "Bootstrap token" }).fill("claim-token");
   await page.getByRole("textbox", { name: "Your name" }).fill("Neal");
   await page.getByRole("textbox", { name: "Device label" }).fill("Test browser");

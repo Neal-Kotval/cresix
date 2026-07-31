@@ -159,6 +159,8 @@ describe("C6 application routes", () => {
   it("supports server claim and missing invitation recovery", () => {
     setRoute("/claim"); const { unmount } = render(<App />);
     expect(screen.getByRole("textbox", { name: "Bootstrap token" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Find your bootstrap token" })).toHaveTextContent("just bootstrap-token");
+    expect(screen.getByRole("complementary", { name: "Find your bootstrap token" })).toHaveTextContent("just bootstrap-token-compose");
     expect(screen.getByRole("button", { name: "Claim server" })).toBeDisabled();
     unmount(); setRoute("/join"); render(<App />);
     expect(screen.getByRole("heading", { name: "Invitation unavailable" })).toBeInTheDocument();

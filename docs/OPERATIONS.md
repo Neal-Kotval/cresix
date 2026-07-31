@@ -74,6 +74,18 @@ not create the file or log the value. Paste the token into the first-run claim
 screen, or verify the same control-plane flow with `curl` and `jq`:
 
 ```bash
+# Source/Just installation. `just start` also prints it once locally.
+just bootstrap-token
+
+# Compose installation.
+just bootstrap-token-compose
+```
+
+The C6 process itself never logs the token because service managers and Docker
+commonly retain startup output. The Just reveal commands are intended for an
+operator's local interactive terminal only.
+
+```bash
 export C6_URL=http://127.0.0.1:8787
 docker compose exec -T c6 cat /var/lib/c6/bootstrap-token
 read -rsp 'Paste the one-time token: ' C6_CLAIM_TOKEN; echo
