@@ -1,0 +1,23 @@
+[server]
+listen = "0.0.0.0:8787"
+public_base_url = "http://localhost:8787"
+signup = "invite_only"
+
+[auth.local]
+# Kept for the server-owner recovery account.
+enabled = true
+
+[auth.github]
+# When configured, this becomes the primary sign-in button. Provider identities
+# link to C6-owned users; GitHub never owns project authorization.
+enabled = false
+client_id_env = "C6_GITHUB_CLIENT_ID"
+client_secret_env = "C6_GITHUB_CLIENT_SECRET"
+
+[git]
+root = "/var/lib/c6/git"
+ssh_listen = "0.0.0.0:2222"
+
+[runner]
+socket = "/run/c6/runner.sock"
+trusted_team_code_only = true

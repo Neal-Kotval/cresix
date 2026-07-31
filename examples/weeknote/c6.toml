@@ -1,0 +1,49 @@
+version = 1
+
+[build]
+strategy = "auto"
+
+[postgres]
+enabled = true
+
+[files]
+enabled = true
+
+[secrets.OPENAI_API_KEY]
+description = "OpenAI API key used only by the Friday notes agent"
+
+[[services]]
+name = "web"
+command = "./weeknote serve"
+port = 8080
+health_path = "/healthz"
+
+[services.resources]
+cpu = 0.5
+memory_mb = 256
+
+[[jobs]]
+name = "sync-activity"
+kind = "cron"
+command = "./weeknote sync"
+schedule = "0 * * * *"
+timezone = "UTC"
+concurrency = "forbid"
+timeout_seconds = 300
+
+[[jobs]]
+name = "friday-notes"
+kind = "agent"
+agent_config = "agents/friday-notes.toml"
+schedule = "0 16 * * 5"
+timezone = "America/New_York"
+concurrency = "forbid"
+timeout_seconds = 900
+secrets = ["OPENAI_API_KEY"]
+repository_write = "proposal"
+network = ["api.openai.com"]
+
+[jobs.resources]
+cpu = 1.0
+memory_mb = 1024
+

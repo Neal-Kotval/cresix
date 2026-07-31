@@ -1,0 +1,4 @@
+runtime = "codex"
+instructions = "prompts/friday-notes.md"
+output = "proposal"
+
