@@ -1,14 +1,14 @@
 import type { Page, Route } from "@playwright/test";
 import { fixtureProject, fixtureProjects, fixtureSession } from "../src/fixtures";
 
-export async function mockC6(page: Page, options: { empty?: boolean; delay?: number; unauthorized?: boolean } = {}) {
+export async function mockC6(page: Page, options: { empty?: boolean; delay?: number; unauthorized?: boolean; serverAdministrator?: boolean; noWorkspaces?: boolean } = {}) {
   await page.route("**/api/v1/**", async (route: Route) => {
     if (options.delay) await new Promise((resolve) => setTimeout(resolve, options.delay));
     const url = new URL(route.request().url());
     const path = url.pathname;
     if (path.endsWith("/status")) return route.fulfill({ json: { claimed: true, authentication: "peer_trust" } });
     if (options.unauthorized && path.includes("/projects/")) return route.fulfill({ status: 403, json: { error: "forbidden" } });
-    if (path.endsWith("/session")) return route.fulfill({ json: { ...fixtureSession, csrfToken: "fresh-session-proof" } });
+    if (path.endsWith("/session")) return route.fulfill({ json: { ...fixtureSession, workspaces: options.noWorkspaces ? [] : fixtureSession.workspaces, serverAdministrator: options.serverAdministrator ?? fixtureSession.serverAdministrator, csrfToken: "fresh-session-proof" } });
     if (path.endsWith("/workspaces") && route.request().method() === "POST") return route.fulfill({ status: 201, json: fixtureSession.workspaces[0] });
     if (path === "/api/v1/projects" && route.request().method() === "POST") return route.fulfill({ status: 201, json: { ...fixtureProject, name: "Release Notes", slug: "release-notes" } });
     if (path === "/api/v1/projects") return route.fulfill({ json: { projects: options.empty ? [] : fixtureProjects } });

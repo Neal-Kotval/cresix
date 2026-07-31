@@ -27,7 +27,7 @@ test("project and server policies expose secure defaults", async ({ page }) => {
   await page.goto("/projects/weeknote/settings");
   await expect(page.getByText("Hosted application access")).toBeVisible();
   await expect(page.getByText("no dispatcher executes project code", { exact: false })).toBeVisible();
-  await page.goto("/settings/server");
+  await page.goto("/admin");
   await expect(page.getByText("Operator-managed network")).toBeVisible();
   await expect(page.getByText("Account recovery")).toBeVisible();
 });
@@ -35,7 +35,7 @@ test("project and server policies expose secure defaults", async ({ page }) => {
 test("keyboard navigation has visible focus and semantic landmarks", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "Focus rendering is checked in Chromium.");
   await page.goto("/");
-  await expect(page.getByRole("navigation", { name: "Workspace" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "C6 Hub" })).toBeVisible();
   await page.keyboard.press("Tab");
   const focused = page.locator(":focus-visible");
   await expect(focused).toBeVisible();
@@ -43,12 +43,12 @@ test("keyboard navigation has visible focus and semantic landmarks", async ({ pa
   expect(outline).not.toBe("none");
 });
 
-test("mobile navigation preserves access to every workspace surface", async ({ page, isMobile }) => {
+test("mobile navigation preserves access to C6 Hub projects", async ({ page, isMobile }) => {
   test.skip(!isMobile, "Mobile navigation is checked on the mobile project.");
   await page.goto("/");
   await page.getByRole("button", { name: "Open navigation" }).click();
-  await expect(page.getByRole("navigation", { name: "Workspace" })).toBeVisible();
-  await page.getByRole("link", { name: "Trusted peers" }).click();
-  await expect(page.getByRole("heading", { name: "Trusted peers" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "C6 Hub" })).toBeVisible();
+  await page.getByRole("navigation", { name: "Recent projects" }).getByRole("link", { name: /Weeknote/ }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Weeknote" })).toBeVisible();
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
 });

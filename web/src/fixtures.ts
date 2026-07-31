@@ -3,7 +3,7 @@ import type { Branch, Invite, Job, Peer, ProjectDetail, ProjectSummary, SecretMe
 const now = Date.now();
 const ago = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
 const ahead = (hours: number) => new Date(now + hours * 3_600_000).toISOString();
-export const fixtureSession: Session = { user: { id: "u-neal", handle: "neal", displayName: "Neal Kotval" }, workspaces: [{ id: "w-paper", slug: "paper-street", name: "Paper Street", role: "owner" }] };
+export const fixtureSession: Session = { user: { id: "u-neal", handle: "neal", displayName: "Neal Kotval" }, workspaces: [{ id: "w-paper", slug: "paper-street", name: "Paper Street", role: "owner" }], serverAdministrator: true };
 export const fixtureProject: ProjectDetail = {
   id: "p-weeknote", workspaceId: "w-paper", slug: "weeknote", name: "Weeknote", description: "A tiny shared app for making the weekly update less painful.", defaultBranch: "main", headSha: "7c1a840d9f3", publishedSha: "2fa39bd830e", role: "owner", appUrl: "https://weeknote.c6.local", updatedAt: ago(1), readme: "# Weeknote",
   revisions: [

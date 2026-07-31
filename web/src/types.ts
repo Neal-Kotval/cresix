@@ -3,7 +3,7 @@ export type RunStatus = "recorded" | "queued" | "running" | "succeeded" | "faile
 
 export interface User { id: string; handle: string; displayName: string; }
 export interface Workspace { id: string; slug: string; name: string; role: Role; }
-export interface Session { user: User; workspaces: Workspace[]; csrfToken?: string; }
+export interface Session { user: User; workspaces: Workspace[]; serverAdministrator: boolean; csrfToken?: string; }
 export interface ProjectSummary { id: string; workspaceId: string; slug: string; name: string; description: string; defaultBranch: string; headSha: string; publishedSha?: string; role: Role; updatedAt: string; appUrl?: string; }
 export interface Deployment { id: string; revisionSha: string; environment: "preview" | "production"; status: "recorded" | "queued" | "building" | "ready" | "failed" | "superseded"; url?: string; createdAt: string; }
 export interface Revision { sha: string; message: string; author: User; createdAt: string; }

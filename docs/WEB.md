@@ -1,17 +1,39 @@
 # Web product
 
-The React application presents a GitHub-like home for small software: workspace
-navigation, projects, source, pull requests, deployments, jobs, runs, secrets,
-peers, server settings, first claim, and invitation redemption.
+The React application contains two named surfaces served by one C6 server: C6
+Hub for workspace/project collaboration and C6 Admin for installation
+operations. They share one session and API; this is navigation and
+responsibility separation, not a second frontend deployment or control plane.
 
-## Information architecture
+## First-slice route contract
 
 - **Installation flows:** unclaimed status routes to claim; a fragment invite
-  routes to join; an authenticated session routes to the workspace.
-- **Workspace home:** project discovery and creation.
-- **Project spine:** source → review → recorded runtime intent.
-- **Trust settings:** invitations, peers, devices, and sessions.
-- **Server settings:** local health, reachability, and operational limitations.
+  routes to join; an authenticated session enters C6 Hub by default.
+- **C6 Hub:** `/` is workspace/project discovery and `/projects/*` is the
+  project spine. Workspace membership management is deferred; the project UI
+  does not misroute members to installation-wide peer controls.
+- **C6 Admin:** `/admin` presents installation state and operational boundaries;
+  `/admin/access` presents global invitations and peers. Personal device and
+  session endpoints are self-service and do not grant cross-peer visibility.
+- **Compatibility:** legacy `/settings/server` and `/settings/peers` redirect to
+  their canonical Admin routes. New navigation uses Hub/Admin routes.
+
+Browser routes select a surface while all data and mutations still pass through
+`/api/v1` on the same origin. No Hub/Admin API split exists.
+
+## Capability and role boundary
+
+The authenticated session exposes a boolean `serverAdministrator` capability.
+Admin navigation and installation-wide actions use that capability. A workspace
+role of `owner` does not set it and must never be treated as an equivalent.
+
+Peers without the capability remain in Hub. Direct Admin navigation must render
+an explicit unauthorized state rather than silently showing fixtures or
+inferring privilege from workspace membership.
+
+The future `c6` CLI will be another thin client of these same API and capability
+checks. There are no implemented CLI commands and the web app must not imply
+otherwise.
 
 ## Truth conventions
 
@@ -45,3 +67,7 @@ and narrow-screen states. Keyboard focus, semantic controls, readable contrast,
 and stable layout are regression requirements. Playwright tests drive a real
 C6 backend for claim, workspace/project creation, and trust flows; component
 tests cover rendering and API edge behavior.
+
+The surface split adds regression requirements for Hub/Admin navigation,
+`serverAdministrator` gating, workspace-owner denial in Admin, and legacy
+`/settings/*` compatibility.

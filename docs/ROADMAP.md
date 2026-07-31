@@ -14,6 +14,8 @@ shapes remain unchecked.
 - [x] Embedded SQLite control store and startup migrations
 - [x] One-time owner claim, peer invitations, device sessions, and revocation
 - [x] Durable projects and server-side authorization on control-plane operations
+- [x] Explicit `serverAdministrator` session capability that workspace roles cannot grant
+- [x] C6 Hub/Admin navigation and capability gate with legacy `/settings/*` compatibility
 - [ ] Local backup/restore verification
 
 ## Git collaboration
@@ -53,3 +55,12 @@ Only add these after a concrete deployment requires them:
 - Workload PostgreSQL, object buckets, or an external OCI registry
 - Multi-server federation, high availability, or Kubernetes
 - Dynamic plugins, CI checks, or merge queues
+
+## Client surfaces
+
+- C6 Hub remains the workspace/project collaboration interface.
+- C6 Admin grows only around real installation operations supported by the
+  single server; recorded or illustrative state stays labelled.
+- A future `c6` CLI may provide thin API-client workflows for operators. It must
+  not become a second control plane, own separate state, or bypass API
+  authorization. No CLI command is implemented yet.

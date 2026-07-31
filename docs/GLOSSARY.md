@@ -3,8 +3,18 @@
 - **C6 / cresix:** C6 is the product; `cresix` is its repository and Compose
   project name.
 - **Installation:** one authoritative C6 server, SQLite store, and Git root.
+- **C6 Hub:** web surface for workspace and project collaboration. Its canonical
+  first-slice routes are `/` and `/projects/*`. Workspace member management is
+  not implemented yet.
+- **C6 Admin:** web surface for installation operations. Its canonical
+  first-slice routes are `/admin` and `/admin/access`; it is not another server.
+- **`c6` CLI:** future thin client of the C6 HTTP API and operator entry point.
+  It is not implemented and will not own control-plane state.
 - **Server administrator:** immutable peer created by bootstrap. This identity
-  alone manages invitations, peers, sessions, devices, and the global audit log.
+  alone manages global invitations, peers, workspace creation, and the global
+  audit log. Device and session endpoints are currently self-service.
+- **`serverAdministrator`:** explicit authenticated-session capability used to
+  gate C6 Admin. It is never inferred from a workspace role.
 - **Peer:** local person record created by bootstrap or invitation redemption.
 - **Device record:** label plus opaque `publicKey` metadata attached at
   enrollment. It is not proof of possession or a login method.

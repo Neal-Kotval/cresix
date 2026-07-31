@@ -13,6 +13,29 @@ records, schedules, runs, and deployments. It does not host applications,
 accept Git pushes, execute jobs, store secret values, or provide recoverable
 login.
 
+## Two web surfaces, one C6
+
+C6 presents two product surfaces over the same server, session, API, and data
+authority:
+
+- **C6 Hub** is where peers collaborate inside workspaces and projects: project
+  discovery, repository views, pull-request records, and recorded runtime
+  intent. Workspace member management remains deferred.
+- **C6 Admin** is where the installation administrator operates the local C6
+  installation: server state, global access invitations and peer records, audit,
+  and the boundary around future storage and runner operations. Personal device
+  and session endpoints remain self-service rather than global Admin powers.
+
+This is an information-architecture split, not two control planes or two
+deployments. Hub and Admin must never disagree about identity, membership,
+project state, or audit history because one C6 server remains authoritative for
+all of them.
+
+The future `c6` CLI follows the same rule. It will be a thin authenticated API
+client and operator entry point, not a daemon, a second data authority, or a
+way to bypass server-side authorization. No `c6` CLI commands are implemented
+in this release.
+
 ## People
 
 - **Solo builder:** keeps small tools on a laptop and wants understandable local
@@ -20,9 +43,9 @@ login.
 - **Small trusted team:** shares source and operational intent through one
   owner-operated server.
 - **Operator:** controls reachability, TLS termination, backups, upgrades, and
-  the bootstrap administrator session.
+  the bootstrap administrator session through C6 Admin and host tooling.
 - **Contributor:** reads or proposes changes within a workspace role but does
-  not administer the server.
+  not administer the server; their primary surface is C6 Hub.
 
 The current security boundary assumes these people trust one another not to run
 hostile code. C6 still protects against accidents, stale authorization, token
@@ -39,6 +62,10 @@ replay, cross-site mutation, path traversal, and unsafe runner protocol input.
    volumes.
 6. Validate `c6.toml` declarations and test the runner/scheduler contracts
    without pretending workloads executed.
+
+Hub and Admin organize these use cases without widening the implemented
+capability set: recorded run/deployment metadata remains non-executing, and
+Admin does not automate TLS, backups, hosting, or runner dispatch.
 
 ## Principles
 

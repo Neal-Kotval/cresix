@@ -16,7 +16,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 const post = <T>(path: string, body: unknown) => request<T>(path, { method: "POST", body: JSON.stringify(body) });
 const handle = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-const normalizeSession = (value: { user: { id: string; displayName: string; handle?: string }; workspaces: Session["workspaces"] }): Session => ({ ...value, user: { ...value.user, handle: value.user.handle ?? handle(value.user.displayName) } });
+type SessionEnvelope = Omit<Session, "user"> & { user: { id: string; displayName: string; handle?: string } };
+const normalizeSession = (value: SessionEnvelope): Session => ({ ...value, serverAdministrator: value.serverAdministrator === true, user: { ...value.user, handle: value.user.handle ?? handle(value.user.displayName) } });
 
 async function projectDetail(summary: ProjectSummary): Promise<ProjectDetail> {
   const base = `/api/v1/projects/${summary.id}`;
@@ -34,7 +35,7 @@ export const api = {
     try {
       const status = await request<{ claimed: boolean }>("/api/v1/status");
       if (!status.claimed) return { state: "unclaimed" as const, session: undefined, projects: [] };
-      const [rawSession, projectEnvelope] = await Promise.all([request<{ user: { id: string; displayName: string; handle?: string }; workspaces: Session["workspaces"] }>("/api/v1/session"), request<{ projects: ProjectSummary[] }>("/api/v1/projects")]);
+      const [rawSession, projectEnvelope] = await Promise.all([request<SessionEnvelope>("/api/v1/session"), request<{ projects: ProjectSummary[] }>("/api/v1/projects")]);
       const session = normalizeSession(rawSession); csrfToken = session.csrfToken ?? "";
       return { state: "ready" as const, session, projects: projectEnvelope.projects, preview: false };
     } catch (error) {

@@ -26,8 +26,9 @@ test("fresh real backend: claim, workspace, project, invite redemption, reload, 
   await page.getByRole("link", { name: "Runs" }).click();
   await page.getByRole("button", { name: "Record run intent" }).click();
   await expect(page.getByRole("status")).toContainText("Run intent recorded");
+  await page.getByRole("link", { name: "Admin", exact: true }).click();
   if (isMobile) await page.getByRole("button", { name: "Open navigation" }).click();
-  await page.getByRole("link", { name: "Trusted peers" }).click();
+  await page.getByRole("link", { name: "Access & invitations" }).click();
   await page.getByRole("button", { name: "Invite peer" }).click();
   const inviteResponse = page.waitForResponse((response) => response.url().endsWith("/api/v1/invites") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Create invite" }).click();
@@ -45,6 +46,6 @@ test("fresh real backend: claim, workspace, project, invite redemption, reload, 
   expect(peers.ok()).toBeTruthy();
   expect(JSON.stringify(await peers.json())).toContain("C6 E2E Peer");
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Trusted peers" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Access & invitations" })).toBeVisible();
   await expect(page.getByText("C6 E2E Peer")).toBeVisible();
 });

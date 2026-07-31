@@ -2,19 +2,23 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { fixtureProject, fixtureProjects, fixtureSession } from "./fixtures";
+import type { Session } from "./types";
 
 function response(data: unknown, ok = true) { return Promise.resolve({ ok, status: ok ? 200 : 503, json: async () => data }); }
 function setRoute(path: string) { history.replaceState({}, "", path); }
 
 describe("C6 application routes", () => {
+  let mockedSession: Session;
+
   afterEach(() => cleanup());
   beforeEach(() => {
+    mockedSession = fixtureSession;
     setRoute("/");
     vi.stubGlobal("scrollTo", vi.fn());
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.endsWith("/status")) return response({ claimed: true });
-      if (path.endsWith("/session")) return response(fixtureSession);
+      if (path.endsWith("/session")) return response(mockedSession);
       if (path.endsWith("/projects")) return response({ projects: fixtureProjects });
       if (path.includes("/pull-requests")) return response({ pullRequests: fixtureProject.pullRequests });
       if (path.includes("/deployments")) return response({ deployments: fixtureProject.deployments });
@@ -81,7 +85,7 @@ describe("C6 application routes", () => {
   });
 
   it("creates trusted peer invitations without pretending fixture approvals persist", async () => {
-    setRoute("/settings/peers"); render(<App />);
+    setRoute("/admin/access"); render(<App />);
     expect(await screen.findByRole("button", { name: "Approve" })).toBeDisabled();
     await waitFor(() => expect(screen.getByText("Local peer record")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Invite peer" }));
@@ -89,6 +93,42 @@ describe("C6 application routes", () => {
     fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "reader" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Create invite" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Invite created"));
+  });
+
+  it("switches an installation administrator between C6 Hub and C6 Admin", async () => {
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Your small software" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "C6 Hub" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Admin" }));
+    expect(await screen.findByRole("heading", { name: "This C6 server" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "C6 Admin" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/admin");
+
+    fireEvent.click(screen.getByRole("link", { name: "Hub" }));
+    expect(await screen.findByRole("heading", { name: "Your small software" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/");
+  });
+
+  it("does not confuse workspace ownership with installation administration", async () => {
+    mockedSession = { ...fixtureSession, serverAdministrator: false };
+    setRoute("/admin/access");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "C6 Admin is restricted" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Access & invitations" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Workspace roles do not grant installation administration/)).toBeInTheDocument();
+  });
+
+  it("keeps C6 Admin reachable for an administrator without a workspace", async () => {
+    mockedSession = { ...fixtureSession, workspaces: [], serverAdministrator: true };
+    setRoute("/admin");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "This C6 server" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "C6 Admin" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Name your C6 workspace" })).not.toBeInTheDocument();
   });
 
   it("supports server claim and missing invitation recovery", () => {

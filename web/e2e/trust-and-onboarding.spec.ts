@@ -26,10 +26,10 @@ test("pair token is scrubbed before approval and never rendered", async ({ page 
   await expect(page).toHaveURL("/");
 });
 
-test("owner sees live peers and creates a scoped invite", async ({ page }) => {
+test("administrator sees live peers and creates a scoped invite", async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => undefined } }));
-  await page.goto("/settings/peers");
-  await expect(page.getByText("Owner-issued invitations and cookie sessions")).toBeVisible();
+  await page.goto("/admin/access");
+  await expect(page.getByText("Administrator-issued invitations and cookie sessions")).toBeVisible();
   await expect(page.getByText("Local peer record")).toBeVisible();
   await page.getByRole("button", { name: "Invite peer" }).click();
   await page.getByRole("combobox").selectOption("reader");

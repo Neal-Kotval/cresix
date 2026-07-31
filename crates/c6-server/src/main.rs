@@ -854,9 +854,10 @@ async fn session(State(state): State<AppState>, headers: HeaderMap) -> Result<Re
         "SELECT json_object('id',w.id,'slug',w.slug,'name',w.name,'role',m.role) FROM workspaces w JOIN memberships m ON m.workspace_id=w.id WHERE m.user_id=?1 ORDER BY w.name",
         [&p.user_id],
     )?;
+    let server_administrator = setting(&tx, "server_owner_id")?.as_deref() == Some(&p.user_id);
     tx.commit().map_err(ApiError::internal)?;
     let mut response = Json(
-        json!({"user":{"id":p.user_id,"displayName":p.display_name},"workspaces":workspaces,"session":{"expiresAt":expires}}),
+        json!({"user":{"id":p.user_id,"displayName":p.display_name},"workspaces":workspaces,"serverAdministrator":server_administrator,"session":{"expiresAt":expires}}),
     ).into_response();
     append_session_cookies(&mut response, &state, &token, &csrf);
     Ok(response)
@@ -2668,6 +2669,18 @@ mod tests {
             ("cookie", owner_cookies.as_str()),
             ("x-c6-csrf", owner_csrf.as_str()),
         ];
+        let owner_session = json_body(
+            request(
+                &a,
+                Method::GET,
+                "/api/v1/session",
+                json!(null),
+                &[("cookie", &owner_cookies)],
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(owner_session["serverAdministrator"], true);
         let workspace = json_body(
             request(
                 &a,
@@ -2709,6 +2722,18 @@ mod tests {
             assert_eq!(enrolled.status(), StatusCode::CREATED);
             let (cookies, csrf) = auth_from_response(enrolled).await;
             let mutating = [("cookie", cookies.as_str()), ("x-c6-csrf", csrf.as_str())];
+            let peer_session = json_body(
+                request(
+                    &a,
+                    Method::GET,
+                    "/api/v1/session",
+                    json!(null),
+                    &[("cookie", &cookies)],
+                )
+                .await,
+            )
+            .await;
+            assert_eq!(peer_session["serverAdministrator"], false);
             assert_eq!(
                 request(
                     &a,

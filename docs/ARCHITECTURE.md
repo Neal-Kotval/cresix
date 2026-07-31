@@ -3,9 +3,11 @@
 ## Local-first topology
 
 ```text
-browser / Git client
-        │
-        ▼
+browser
+  ├── C6 Hub   /, /projects/*
+  └── C6 Admin /admin, /admin/access
+                │
+                ▼
 ┌────────────────────── C6 control plane ──────────────────────┐
 │ peer sessions │ authorization │ project API │ Git read API  │
 │ pull requests │ runtime records │ schedules │ audit events  │
@@ -21,6 +23,16 @@ One C6 installation is authoritative for its peers, projects, and execution
 records. It is remote-first—peers may connect from anywhere through an
 operator-provided HTTPS gateway—but it does not require a central C6 service.
 The gateway terminates TLS; C6's loopback/private backend listener remains HTTP.
+
+C6 Hub and C6 Admin are two web surfaces of this one installation. They share
+the HTTP server, API namespace, cookie session, authorization checks, SQLite
+database, Git root, configuration, backup boundary, and release lifecycle.
+Legacy `/settings/*` web routes redirect to their canonical Admin destinations;
+they do not establish another API or authority.
+
+A future `c6` CLI may call the same authenticated API for operator workflows.
+It is explicitly a thin client—not a resident process, privileged side door,
+or second control plane—and has no implemented commands today.
 
 The MVP deliberately uses an embedded SQLite control store and on-disk bare Git
 repositories. A single local data directory makes a laptop install portable and
@@ -58,6 +70,12 @@ Successful session reads slide expiry forward by 30 days, but there is no
 lost-cookie recovery. This limitation is explicit rather than hidden behind an
 IP address or a pretend device-key flow.
 
+The authenticated session contract exposes `serverAdministrator` as an
+explicit capability. C6 Admin uses that capability to gate installation-wide
+operations. It is not inferred from the `owner` workspace role: workspace
+owners act in Hub, while only the immutable bootstrap identity is the server
+administrator.
+
 ## Process boundary
 
 The control plane records authenticated intent. It does not receive the Docker
@@ -79,6 +97,8 @@ stronger sandbox such as microVMs.
 ## Stable concepts
 
 - **Workspace:** local membership and policy boundary.
+- **C6 Hub:** workspace/project collaboration surface.
+- **C6 Admin:** installation-operations surface gated by session capability.
 - **Peer:** installation-local person with one or more revocable credentials.
 - **Server administrator:** immutable bootstrap identity that manages trust;
   distinct from a workspace `owner`.
